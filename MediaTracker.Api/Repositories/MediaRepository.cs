@@ -52,4 +52,21 @@ public class MediaRepository : IMediaRepository
         await connection.ExecuteAsync(sql, parameters);
         return parameters.Get<int>("NewId");
     }
+
+    public async Task AddGenreAsync(int mediaId, int genreId)
+    {
+        using var connection = new OracleConnection(_connectionString);
+        var sql = @"INSERT INTO media_genres (media_id, genre_id) VALUES (:MediaId, :GenreId)";
+        await connection.ExecuteAsync(sql, new { MediaId = mediaId, GenreId = genreId });
+    }
+
+    public async Task<IEnumerable<Genre>> GetGenresForMediaAsync(int mediaId)
+    {
+        using var connection = new OracleConnection(_connectionString);
+        var sql = @"SELECT g.genre_id AS GenreId, g.name AS Name
+                    FROM genres g
+                    JOIN media_genres mg ON mg.genre_id = g.genre_id
+                    WHERE mg.media_id = :MediaId";
+        return await connection.QueryAsync<Genre>(sql, new { MediaId = mediaId });
+    }
 }

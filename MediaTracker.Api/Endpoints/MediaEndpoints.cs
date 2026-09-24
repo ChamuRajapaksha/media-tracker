@@ -27,5 +27,17 @@ public static class MediaEndpoints
             var created = await repo.GetByIdAsync(newId);
             return Results.Created($"/media/{newId}", created);
         });
+
+        group.MapPost("/{id}/genres/{genreId}", async (int id, int genreId, IMediaRepository repo) =>
+        {
+            await repo.AddGenreAsync(id, genreId);
+            return Results.NoContent();
+        });
+
+        group.MapGet("/{id}/genres", async (int id, IMediaRepository repo) =>
+        {
+            var genres = await repo.GetGenresForMediaAsync(id);
+            return Results.Ok(genres);
+        });
     }
 }
