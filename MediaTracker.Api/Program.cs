@@ -1,5 +1,5 @@
-using Oracle.ManagedDataAccess.Client;
 using MediaTracker.Api.Repositories;
+using MediaTracker.Api.Endpoints;
 var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddScoped<IMediaRepository, MediaRepository>();
 
@@ -18,46 +18,6 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI();
 }
 
-app.UseHttpsRedirection();
-
-var summaries = new[]
-{
-    "Freezing", "Bracing", "Chilly", "Cool", "Mild", "Warm", "Balmy", "Hot", "Sweltering", "Scorching"
-};
-
-app.MapGet("/weatherforecast", () =>
-{
-    var forecast =  Enumerable.Range(1, 5).Select(index =>
-        new WeatherForecast
-        (
-            DateOnly.FromDateTime(DateTime.Now.AddDays(index)),
-            Random.Shared.Next(-20, 55),
-            summaries[Random.Shared.Next(summaries.Length)]
-        ))
-        .ToArray();
-    return forecast;
-})
-.WithName("GetWeatherForecast");
-
-app.MapGet("/test-db", (IConfiguration config) =>
-{
-    var connectionString = config.GetConnectionString("OracleDb");
-    using var connection = new OracleConnection(connectionString);
-    connection.Open();
-
-    using var command = connection.CreateCommand();
-    command.CommandText = "SELECT 'Hello from Oracle' AS message FROM dual";
-
-    using var reader = command.ExecuteReader();
-    reader.Read();
-    var message = reader.GetString(0);
-
-    return Results.Ok(new { message });
-});
-
+app.MapMediaEndpoints();
 app.Run();
 
-record WeatherForecast(DateOnly Date, int TemperatureC, string? Summary)
-{
-    public int TemperatureF => 32 + (int)(TemperatureC / 0.5556);
-}
