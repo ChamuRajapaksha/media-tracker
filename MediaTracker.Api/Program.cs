@@ -2,6 +2,7 @@ using MediaTracker.Api.Repositories;
 using MediaTracker.Api.Endpoints;
 var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddScoped<IMediaRepository, MediaRepository>();
+builder.Services.AddScoped<IGenreRepository, GenreRepository>();
 
 // Add services to the container.
 // Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
@@ -19,5 +20,6 @@ if (app.Environment.IsDevelopment())
 }
 
 app.MapMediaEndpoints();
+app.MapGenreEndpoints();
 app.Run();
 
