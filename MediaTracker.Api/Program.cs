@@ -5,6 +5,9 @@ builder.Services.AddScoped<IMediaRepository, MediaRepository>();
 builder.Services.AddScoped<IGenreRepository, GenreRepository>();
 builder.Services.AddScoped<ISeasonRepository, SeasonRepository>();
 builder.Services.AddScoped<IEpisodeRepository, EpisodeRepository>();
+builder.Services.AddScoped<IWatchStatusRepository, WatchStatusRepository>();
+builder.Services.AddScoped<IRatingRepository, RatingRepository>();
+
 // Add services to the container.
 // Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
 builder.Services.AddEndpointsApiExplorer();
@@ -24,5 +27,7 @@ app.MapMediaEndpoints();
 app.MapGenreEndpoints();
 app.MapSeasonEndpoints();
 app.MapEpisodeEndpoints();
+app.MapWatchStatusEndpoints();
+app.MapRatingEndpoints();
 app.Run();
 
