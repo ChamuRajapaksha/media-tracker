@@ -480,3 +480,8 @@ $RECYCLE.BIN/
 
 # Vim temporary swap files
 *.swp
+
+# AI agent tooling
+.agents/
+skills-lock.json
+skills.json
