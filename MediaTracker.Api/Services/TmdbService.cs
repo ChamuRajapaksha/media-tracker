@@ -31,4 +31,19 @@ public class TmdbService : ITmdbService
 
         return result?.Results ?? new List<TmdbSearchResult>();
     }
+    public async Task<TmdbSearchResult?> GetDetailsAsync(int tmdbId, string mediaType)
+    {
+        // mediaType should be "movie" or "tv"
+        var client = _httpClientFactory.CreateClient("Tmdb");
+        var url = $"{mediaType}/{tmdbId}?api_key={_apiKey}";
+
+        var response = await client.GetAsync(url);
+        response.EnsureSuccessStatusCode();
+
+        var json = await response.Content.ReadAsStringAsync();
+        return JsonSerializer.Deserialize<TmdbSearchResult>(json, new JsonSerializerOptions
+        {
+            PropertyNameCaseInsensitive = true
+        });
+    }
 }
