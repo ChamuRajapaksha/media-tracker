@@ -51,4 +51,21 @@ public class EpisodeRepository : IEpisodeRepository
         await connection.ExecuteAsync(sql, parameters);
         return parameters.Get<int>("NewId");
     }
+
+    public async Task<int> CountBySeasonIdAsync(int seasonId)
+    {
+        using var connection = new OracleConnection(_connectionString);
+        var sql = @"SELECT COUNT(*) FROM episodes WHERE season_id = :SeasonId";
+        return await connection.ExecuteScalarAsync<int>(sql, new { SeasonId = seasonId });
+    }
+
+    public async Task<int> CountWatchedBySeasonIdAsync(int seasonId)
+    {
+        using var connection = new OracleConnection(_connectionString);
+        var sql = @"SELECT COUNT(*)
+                     FROM episodes e
+                     JOIN episode_progress ep ON ep.episode_id = e.episode_id
+                     WHERE e.season_id = :SeasonId";
+        return await connection.ExecuteScalarAsync<int>(sql, new { SeasonId = seasonId });
+    }
 }

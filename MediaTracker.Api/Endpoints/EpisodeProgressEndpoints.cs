@@ -4,6 +4,8 @@ namespace MediaTracker.Api.Endpoints;
 
 public static class EpisodeProgressEndpoints
 {
+    private const string Completed = "COMPLETED";
+
     public static void MapEpisodeProgressEndpoints(this WebApplication app)
     {
         // Split into two groups rather than one group with a literal "progress" segment
@@ -16,10 +18,33 @@ public static class EpisodeProgressEndpoints
             return progress is not null ? Results.Ok(progress) : Results.NotFound();
         });
 
-        episodeGroup.MapPut("/", async (int mediaId, int seasonId, int episodeId, IEpisodeProgressRepository repo) =>
+        episodeGroup.MapPut("/", async (int mediaId, int seasonId, int episodeId, IEpisodeProgressRepository progressRepo, IEpisodeRepository episodeRepo, ISeasonRepository seasonRepo, IWatchStatusRepository watchStatusRepo) =>
         {
-            await repo.MarkWatchedAsync(episodeId);
-            var progress = await repo.GetByEpisodeIdAsync(episodeId);
+            // Nothing in the schema ties the URL's ids together, so confirm the chain
+            // media -> season -> episode before acting on it. Wrong ids in the URL would
+            // otherwise mark progress against one season and update another media's status.
+            var season = await seasonRepo.GetByIdAsync(seasonId);
+            if (season is null || season.MediaId != mediaId)
+            {
+                return Results.NotFound();
+            }
+
+            var episode = await episodeRepo.GetByIdAsync(episodeId);
+            if (episode is null || episode.SeasonId != seasonId)
+            {
+                return Results.NotFound();
+            }
+
+            await progressRepo.MarkWatchedAsync(episodeId);
+
+            var totalEpisodes = await episodeRepo.CountBySeasonIdAsync(seasonId);
+            var watchedEpisodes = await episodeRepo.CountWatchedBySeasonIdAsync(seasonId);
+            if (totalEpisodes > 0 && watchedEpisodes >= totalEpisodes)
+            {
+                await watchStatusRepo.SetStatusAsync(season.MediaId, Completed);
+            }
+
+            var progress = await progressRepo.GetByEpisodeIdAsync(episodeId);
             return Results.Ok(progress);
         });
 
