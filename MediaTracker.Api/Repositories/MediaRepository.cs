@@ -79,4 +79,29 @@ public class MediaRepository : IMediaRepository
         var rows = await connection.ExecuteAsync(sql, new { Id = id });
         return rows > 0;
     }
+
+    public async Task<bool> UpdateAsync(Media media)
+    {
+        // created_at is intentionally left alone: it records when the row first appeared.
+        using var connection = new OracleConnection(_connectionString);
+        var sql = @"UPDATE media
+                     SET title = :Title,
+                         media_type = :MediaType,
+                         release_year = :ReleaseYear,
+                         overview = :Overview,
+                         poster_url = :PosterUrl,
+                         tmdb_id = :TmdbId
+                     WHERE media_id = :MediaId";
+        var rows = await connection.ExecuteAsync(sql, new
+        {
+            media.MediaId,
+            media.Title,
+            media.MediaType,
+            media.ReleaseYear,
+            media.Overview,
+            media.PosterUrl,
+            media.TmdbId
+        });
+        return rows > 0;
+    }
 }
