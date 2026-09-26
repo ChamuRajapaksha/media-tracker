@@ -68,4 +68,13 @@ public class EpisodeRepository : IEpisodeRepository
                      WHERE e.season_id = :SeasonId";
         return await connection.ExecuteScalarAsync<int>(sql, new { SeasonId = seasonId });
     }
+
+    public async Task<bool> DeleteAsync(int episodeId)
+    {
+        // The episode_progress row cascades from here.
+        using var connection = new OracleConnection(_connectionString);
+        var sql = @"DELETE FROM episodes WHERE episode_id = :EpisodeId";
+        var rows = await connection.ExecuteAsync(sql, new { EpisodeId = episodeId });
+        return rows > 0;
+    }
 }

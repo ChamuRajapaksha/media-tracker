@@ -9,4 +9,5 @@ public interface IEpisodeRepository
     Task<int> AddAsync(Episode episode);
     Task<int> CountBySeasonIdAsync(int seasonId);
     Task<int> CountWatchedBySeasonIdAsync(int seasonId);
+    Task<bool> DeleteAsync(int episodeId);
 }

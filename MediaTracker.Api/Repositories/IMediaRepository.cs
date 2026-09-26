@@ -9,4 +9,5 @@ public interface IMediaRepository
     Task<int> AddAsync(Media media);
     Task AddGenreAsync(int mediaId, int genreId);
     Task<IEnumerable<Genre>> GetGenresForMediaAsync(int mediaId);
+    Task<bool> DeleteAsync(int id);
 }

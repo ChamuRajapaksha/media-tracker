@@ -27,5 +27,11 @@ public static class GenreEndpoints
             var created = await repo.GetByIdAsync(newId);
             return Results.Created($"/genres/{newId}", created);
         });
+
+        group.MapDelete("/{id}", async (int id, IGenreRepository repo) =>
+        {
+            var removed = await repo.DeleteAsync(id);
+            return removed ? Results.NoContent() : Results.NotFound();
+        });
     }
 }

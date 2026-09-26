@@ -22,5 +22,11 @@ public static class EpisodeEndpoints
             var created = await repo.GetByIdAsync(newId);
             return Results.Created($"/media/{mediaId}/seasons/{seasonId}/episodes/{newId}", created);
         });
+
+        group.MapDelete("/{episodeId}", async (int mediaId, int seasonId, int episodeId, IEpisodeRepository repo) =>
+        {
+            var removed = await repo.DeleteAsync(episodeId);
+            return removed ? Results.NoContent() : Results.NotFound();
+        });
     }
 }

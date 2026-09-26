@@ -44,4 +44,12 @@ public class GenreRepository : IGenreRepository
         await connection.ExecuteAsync(sql, parameters);
         return parameters.Get<int>("NewId");
     }
+
+    public async Task<bool> DeleteAsync(int id)
+    {
+        using var connection = new OracleConnection(_connectionString);
+        var sql = @"DELETE FROM genres WHERE genre_id = :id";
+        var rows = await connection.ExecuteAsync(sql, new { id });
+        return rows > 0;
+    }
 }

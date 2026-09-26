@@ -69,4 +69,14 @@ public class MediaRepository : IMediaRepository
                     WHERE mg.media_id = :MediaId";
         return await connection.QueryAsync<Genre>(sql, new { MediaId = mediaId });
     }
+
+    public async Task<bool> DeleteAsync(int id)
+    {
+        // Seasons, episodes, genres, watch status, rating and progress rows all go with
+        // the media item via ON DELETE CASCADE, so there is no child cleanup here.
+        using var connection = new OracleConnection(_connectionString);
+        var sql = @"DELETE FROM media WHERE media_id = :Id";
+        var rows = await connection.ExecuteAsync(sql, new { Id = id });
+        return rows > 0;
+    }
 }

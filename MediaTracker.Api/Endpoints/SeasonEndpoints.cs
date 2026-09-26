@@ -22,5 +22,11 @@ public static class SeasonEndpoints
             var created = await repo.GetByIdAsync(newId);
             return Results.Created($"/media/{mediaId}/seasons/{newId}", created);
         });
+
+        group.MapDelete("/{seasonId}", async (int mediaId, int seasonId, ISeasonRepository repo) =>
+        {
+            var removed = await repo.DeleteAsync(seasonId);
+            return removed ? Results.NoContent() : Results.NotFound();
+        });
     }
 }

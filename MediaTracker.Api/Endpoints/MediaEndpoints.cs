@@ -39,5 +39,11 @@ public static class MediaEndpoints
             var genres = await repo.GetGenresForMediaAsync(id);
             return Results.Ok(genres);
         });
+
+        group.MapDelete("/{id}", async (int id, IMediaRepository repo) =>
+        {
+            var removed = await repo.DeleteAsync(id);
+            return removed ? Results.NoContent() : Results.NotFound();
+        });
     }
 }
