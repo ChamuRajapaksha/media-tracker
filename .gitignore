@@ -483,5 +483,6 @@ $RECYCLE.BIN/
 
 # AI agent tooling
 .agents/
+AGENTS.md
 skills-lock.json
 skills.json
