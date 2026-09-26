@@ -46,4 +46,36 @@ public class TmdbService : ITmdbService
             PropertyNameCaseInsensitive = true
         });
     }
+
+    public async Task<List<TmdbSeasonSummary>> GetSeasonsAsync(int tmdbId)
+    {
+        var client = _httpClientFactory.CreateClient("Tmdb");
+        var url = $"tv/{tmdbId}?api_key={_apiKey}";
+
+        var response = await client.GetAsync(url);
+        response.EnsureSuccessStatusCode();
+
+        var json = await response.Content.ReadAsStringAsync();
+        var result = JsonSerializer.Deserialize<TmdbShowSeasons>(json, new JsonSerializerOptions
+        {
+            PropertyNameCaseInsensitive = true
+        });
+
+        return result?.Seasons ?? new List<TmdbSeasonSummary>();
+    }
+
+    public async Task<TmdbSeasonDetail?> GetSeasonAsync(int tmdbId, int seasonNumber)
+    {
+        var client = _httpClientFactory.CreateClient("Tmdb");
+        var url = $"tv/{tmdbId}/season/{seasonNumber}?api_key={_apiKey}";
+
+        var response = await client.GetAsync(url);
+        response.EnsureSuccessStatusCode();
+
+        var json = await response.Content.ReadAsStringAsync();
+        return JsonSerializer.Deserialize<TmdbSeasonDetail>(json, new JsonSerializerOptions
+        {
+            PropertyNameCaseInsensitive = true
+        });
+    }
 }

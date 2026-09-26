@@ -77,4 +77,34 @@ public class EpisodeRepository : IEpisodeRepository
         var rows = await connection.ExecuteAsync(sql, new { EpisodeId = episodeId });
         return rows > 0;
     }
+
+    public async Task<int> UpsertAsync(Episode episode)
+    {
+        using var connection = new OracleConnection(_connectionString);
+        // Matches on uq_episode for the same idempotency reason as SeasonRepository.UpsertAsync.
+        var mergeSql = @"MERGE INTO episodes e
+                         USING (SELECT :SeasonId AS season_id, :EpisodeNumber AS episode_number,
+                                       :Title AS title, :AirDate AS air_date FROM dual) src
+                         ON (e.season_id = src.season_id AND e.episode_number = src.episode_number)
+                         WHEN MATCHED THEN
+                             UPDATE SET title = src.title, air_date = src.air_date
+                         WHEN NOT MATCHED THEN
+                             INSERT (season_id, episode_number, title, air_date)
+                             VALUES (src.season_id, src.episode_number, src.title, src.air_date)";
+        await connection.ExecuteAsync(mergeSql, new
+        {
+            episode.SeasonId,
+            episode.EpisodeNumber,
+            episode.Title,
+            episode.AirDate
+        });
+
+        var selectSql = @"SELECT episode_id FROM episodes
+                           WHERE season_id = :SeasonId AND episode_number = :EpisodeNumber";
+        return await connection.ExecuteScalarAsync<int>(selectSql, new
+        {
+            episode.SeasonId,
+            episode.EpisodeNumber
+        });
+    }
 }

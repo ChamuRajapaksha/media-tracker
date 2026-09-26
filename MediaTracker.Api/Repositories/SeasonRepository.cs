@@ -59,4 +59,36 @@ public class SeasonRepository : ISeasonRepository
         var rows = await connection.ExecuteAsync(sql, new { SeasonId = seasonId });
         return rows > 0;
     }
+
+    public async Task<int> UpsertAsync(Season season)
+    {
+        using var connection = new OracleConnection(_connectionString);
+        // Matches on uq_season so re-importing a show refreshes titles instead of
+        // failing on the unique constraint the way a plain INSERT would.
+        var mergeSql = @"MERGE INTO seasons s
+                         USING (SELECT :MediaId AS media_id, :SeasonNumber AS season_number, :Title AS title FROM dual) src
+                         ON (s.media_id = src.media_id AND s.season_number = src.season_number)
+                         WHEN MATCHED THEN
+                             UPDATE SET title = src.title
+                         WHEN NOT MATCHED THEN
+                             INSERT (media_id, season_number, title)
+                             VALUES (src.media_id, src.season_number, src.title)";
+        await connection.ExecuteAsync(mergeSql, new
+        {
+            season.MediaId,
+            season.SeasonNumber,
+            season.Title
+        });
+
+        // Read the id back rather than using RETURNING ... INTO: Oracle's support for a
+        // RETURNING clause on MERGE varies by version, and a second round trip to a
+        // uniquely-indexed row is cheap next to being wrong on someone's database.
+        var selectSql = @"SELECT season_id FROM seasons
+                           WHERE media_id = :MediaId AND season_number = :SeasonNumber";
+        return await connection.ExecuteScalarAsync<int>(selectSql, new
+        {
+            season.MediaId,
+            season.SeasonNumber
+        });
+    }
 }

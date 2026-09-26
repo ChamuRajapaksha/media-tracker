@@ -8,4 +8,5 @@ public interface ISeasonRepository
     Task<Season?> GetByIdAsync(int seasonId);
     Task<int> AddAsync(Season season);
     Task<bool> DeleteAsync(int seasonId);
+    Task<int> UpsertAsync(Season season);
 }
