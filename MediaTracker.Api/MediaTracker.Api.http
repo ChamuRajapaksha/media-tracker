@@ -1,6 +1,85 @@
 @MediaTracker.Api_HostAddress = http://localhost:5165
 
-GET {{MediaTracker.Api_HostAddress}}/weatherforecast/
+### Media
+GET {{MediaTracker.Api_HostAddress}}/media
 Accept: application/json
+
+###
+
+### Create a show, then update it
+# @name createdMedia
+POST {{MediaTracker.Api_HostAddress}}/media
+Content-Type: application/json
+
+{
+  "title": "Severance",
+  "mediaType": "SHOW",
+  "releaseYear": 2022,
+  "overview": "Created from MediaTracker.Api.http"
+}
+
+###
+@mediaId = {{createdMedia.response.body.mediaId}}
+
+PUT {{MediaTracker.Api_HostAddress}}/media/{{mediaId}}
+Content-Type: application/json
+
+{
+  "title": "Severance (updated)",
+  "mediaType": "SHOW",
+  "releaseYear": 2022,
+  "overview": "Edited title",
+  "posterUrl": null,
+  "tmdbId": 95396
+}
+
+###
+
+### TMDB: import a show, then pull its seasons and episodes
+POST {{MediaTracker.Api_HostAddress}}/tmdb/import?tmdbId=95396&type=tv
+Accept: application/json
+
+###
+@tmdbMediaId = {{createdMedia.response.body.mediaId}}
+
+POST {{MediaTracker.Api_HostAddress}}/tmdb/import-seasons?mediaId={{tmdbMediaId}}
+Accept: application/json
+
+###
+
+### Seasons and episodes
+GET {{MediaTracker.Api_HostAddress}}/media/{{mediaId}}/seasons
+Accept: application/json
+
+###
+@seasonId = 1
+
+GET {{MediaTracker.Api_HostAddress}}/media/{{mediaId}}/seasons/{{seasonId}}/episodes
+Accept: application/json
+
+###
+
+### Mark every episode in the season watched (last one flips status to COMPLETED)
+PUT {{MediaTracker.Api_HostAddress}}/media/{{mediaId}}/seasons/{{seasonId}}/episodes/1/progress
+Accept: application/json
+
+###
+GET {{MediaTracker.Api_HostAddress}}/media/{{mediaId}}/seasons/{{seasonId}}/progress
+Accept: application/json
+
+###
+GET {{MediaTracker.Api_HostAddress}}/media/{{mediaId}}/watch-status
+Accept: application/json
+
+###
+
+### Genres
+GET {{MediaTracker.Api_HostAddress}}/genres
+Accept: application/json
+
+###
+
+### Deletes (ON DELETE CASCADE takes the children with it)
+DELETE {{MediaTracker.Api_HostAddress}}/media/{{mediaId}}
 
 ###

@@ -36,11 +36,12 @@ Track the media you want to watch, are watching, have finished, or have dropped.
 
 | Area | Capability |
 | --- | --- |
-| Media library | Create and browse movies and shows; many-to-many genre tagging |
+| Media library | Create, browse, update and delete movies and shows; many-to-many genre tagging |
 | Shows | Nested seasons and episodes, addressed as real REST resources |
 | Progress tracking | Per-media watch status, upserted in a single database call |
+| Episode progress | Mark individual episodes watched or unwatched; completing a season auto-completes the show |
 | Ratings | Score and review per media item, same upsert semantics |
-| TMDB integration | Import a real movie or show straight from TMDB by ID |
+| TMDB integration | Import a real movie or show straight from TMDB by ID, including its seasons and episodes |
 | API docs | Swagger UI and an OpenAPI document, development only |
 | Secrets handling | Connection string and API key kept out of source control entirely |
 
@@ -118,12 +119,20 @@ Schema source: [`database/schema.sql`](database/schema.sql).
 | `GET` | `/media` | List all media |
 | `GET` | `/media/{id}` | Get one media item |
 | `POST` | `/media` | Create a media item |
+| `PUT` | `/media/{id}` | Update a media item's own fields |
+| `DELETE` | `/media/{id}` | Delete a media item and everything under it |
 | `GET` | `/media/{id}/genres` | Genres for a media item |
 | `POST` | `/media/{id}/genres/{genreId}` | Tag a media item with a genre |
 | `GET` | `/media/{mediaId}/seasons` | Seasons for a show |
 | `POST` | `/media/{mediaId}/seasons` | Add a season |
+| `DELETE` | `/media/{mediaId}/seasons/{seasonId}` | Delete a season and its episodes |
 | `GET` | `/media/{mediaId}/seasons/{seasonId}/episodes` | Episodes in a season |
 | `POST` | `/media/{mediaId}/seasons/{seasonId}/episodes` | Add an episode |
+| `DELETE` | `/media/{mediaId}/seasons/{seasonId}/episodes/{episodeId}` | Delete an episode |
+| `GET` | `/media/{mediaId}/seasons/{seasonId}/progress` | Episodes in the season that are watched |
+| `GET` | `/media/{mediaId}/seasons/{seasonId}/episodes/{episodeId}/progress` | Watch status for one episode |
+| `PUT` | `/media/{mediaId}/seasons/{seasonId}/episodes/{episodeId}/progress` | Mark an episode watched; completing the season marks the show `COMPLETED` |
+| `DELETE` | `/media/{mediaId}/seasons/{seasonId}/episodes/{episodeId}/progress` | Mark an episode unwatched |
 | `GET` | `/media/{mediaId}/watch-status` | Current watch status |
 | `PUT` | `/media/{mediaId}/watch-status` | Set watch status (upsert) |
 | `GET` | `/media/{mediaId}/rating` | Current rating |
@@ -131,7 +140,9 @@ Schema source: [`database/schema.sql`](database/schema.sql).
 | `GET` | `/genres` | List genres |
 | `GET` | `/genres/{id}` | Get one genre |
 | `POST` | `/genres` | Create a genre |
+| `DELETE` | `/genres/{id}` | Delete a genre |
 | `POST` | `/tmdb/import?tmdbId=&type=` | Import a movie or show from TMDB as a media row |
+| `POST` | `/tmdb/import-seasons?mediaId=` | Import a show's seasons and episodes from TMDB |
 
 `type` is `movie` or `tv` on the TMDB route and is translated to the database's `MOVIE`/`SHOW` before insert.
 
@@ -143,9 +154,9 @@ The database was picked precisely because it is the awkward one, so the Oracle-f
 | --- | --- |
 | Bind parameters | `:Name`, not `@Name` |
 | Getting the new primary key | `RETURNING <col> INTO :NewId` plus a Dapper `DynamicParameters` entry with `ParameterDirection.Output` |
-| Upserts | `MERGE INTO ... USING (SELECT :p AS col FROM dual) ... WHEN MATCHED / WHEN NOT MATCHED` for `watch_status` and `ratings` |
+| Upserts | `MERGE INTO ... USING (SELECT :p AS col FROM dual) ... WHEN MATCHED / WHEN NOT MATCHED` for `watch_status`, `ratings`, `seasons` and `episodes` |
 | Column mapping | Every `SELECT` aliases snake_case columns to PascalCase (`media_id AS MediaId`) because Oracle returns uppercase column names |
-| Deletes | Rely on `ON DELETE CASCADE` rather than manual child cleanup |
+| Deletes | Rely on `ON DELETE CASCADE` rather than manual child cleanup, verified level by level against the running database |
 | Timestamps | `SYSDATE` |
 
 ## Getting started
@@ -211,6 +222,7 @@ media-tracker/
 │   ├── Endpoints/              one static class per entity
 │   ├── Services/               ITmdbService.cs / TmdbService.cs
 │   ├── Program.cs              DI registration and endpoint mapping
+│   ├── MediaTracker.Api.http   runnable request samples
 │   └── Properties/launchSettings.json
 └── README.md
 ```
@@ -219,7 +231,7 @@ media-tracker/
 
 Short version of what's next, roughly in order:
 
-- Episode-level watch progress — the `episode_progress` table exists in the schema, the API layer does not yet
-- `PUT`/`DELETE` endpoints; the API is currently create and read only outside of the upsert routes
-- TMDB import for seasons and episodes, so a show's structure does not have to be entered by hand
-- A test project, plus a `docker-compose.yml` that brings up the API and Oracle together in one command
+- A test project — there is none yet, and repository code opens `OracleConnection` directly by design, so it needs an approach worked out for Oracle rather than an in-memory substitute
+- `docker-compose.yml` bringing up the API and Oracle together in one command
+- Season and episode `PUT` endpoints, to match what media items already have
+- Downgrading a show from `COMPLETED` back to `WATCHING` when an episode is unmarked
