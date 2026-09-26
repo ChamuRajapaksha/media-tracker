@@ -25,7 +25,6 @@ Personal project, built deliberately as a portfolio piece to demonstrate C#/.NET
 - [What you can learn from this](#what-you-can-learn-from-this)
 - [Project layout](#project-layout)
 - [Roadmap](#roadmap)
-
 ---
 
 ## What it does
@@ -197,7 +196,17 @@ dotnet run --project MediaTracker.Api
 
 The API listens on `http://localhost:5165`. Swagger UI is at `/swagger` in the Development environment.
 
+**5. Try it**
+
+Open `/swagger` and use **Execute** on any route. If you use an editor that understands `.http` files, [`MediaTracker.Api/MediaTracker.Api.http`](MediaTracker.Api/MediaTracker.Api.http) has a runnable sequence that imports a show from TMDB, pulls its seasons and episodes, marks a season watched, and deletes the result.
+
+The README uses diagrams rather than screenshots on purpose — they stay readable as the API changes and cannot go stale.
+
 > There is no test project yet. `dotnet build MediaTracker.Api` is the only automated check available.
+
+**6. Clean up after yourself**
+
+The `.http` samples and manual testing leave rows behind. [`database/purge-test-data.sql`](database/purge-test-data.sql) removes the smoke-test data while leaving anything you created deliberately. Run it with **Run Script**, and note it needs an explicit `COMMIT`.
 
 ## What you can learn from this
 
@@ -215,7 +224,8 @@ The API listens on `http://localhost:5165`. Swagger UI is at `/swagger` in the D
 ```
 media-tracker/
 ├── database/
-│   └── schema.sql              all 8 tables, run once as media_app
+│   ├── schema.sql              all 8 tables, run once as media_app
+│   └── purge-test-data.sql     removes smoke-test data, leaves real data alone
 ├── MediaTracker.Api/
 │   ├── Models/                 POCOs mirroring the tables (+ Models/Tmdb/)
 │   ├── Repositories/           I<Entity>Repository.cs + <Entity>Repository.cs
