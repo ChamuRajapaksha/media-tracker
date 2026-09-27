@@ -1,3 +1,4 @@
 <Solution>
+  <Project Path="MediaTracker.Api.Tests/MediaTracker.Api.Tests.csproj" />
   <Project Path="MediaTracker.Api/MediaTracker.Api.csproj" />
 </Solution>
