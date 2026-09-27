@@ -59,3 +59,5 @@ app.MapRatingEndpoints();
 app.MapTmdbEndpoints();
 app.Run();
 
+public partial class Program { }
+
