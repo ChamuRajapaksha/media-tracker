@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Json;
 using MediaTracker.Api.Models;
+using MediaTracker.Api.Models.Tmdb;
 using NSubstitute;
 
 namespace MediaTracker.Api.Tests;
@@ -423,6 +424,103 @@ public class EndpointLogicTests : IClassFixture<EndpointApiFactory>
         await _factory.Media.DidNotReceive().UpdateAsync(Arg.Any<Media>());
         await _factory.Media.DidNotReceive().AddAsync(Arg.Any<Media>());
     }
+
+    [Fact]
+    public async Task Importing_a_movie_stores_the_movie_media_type()
+    {
+        GivenTmdbDetails(new TmdbSearchResult { Id = 1396, Title = "Fight Club", ReleaseDate = "1999-10-15" });
+
+        var response = await _client.PostAsync("/tmdb/import?tmdbId=1396&type=movie", null);
+
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        await _factory.Media.Received(1).AddAsync(Arg.Is<Media>(media => media.MediaType == "MOVIE"));
+    }
+
+    [Fact]
+    public async Task Importing_a_show_stores_the_show_media_type()
+    {
+        GivenTmdbDetails(new TmdbSearchResult { Id = 95396, Name = "Severance", FirstAirDate = "2022-02-18" });
+
+        var response = await _client.PostAsync("/tmdb/import?tmdbId=95396&type=tv", null);
+
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        await _factory.Media.Received(1).AddAsync(Arg.Is<Media>(media => media.MediaType == "SHOW"));
+    }
+
+    [Fact]
+    public async Task The_tmdb_type_parameter_is_passed_through_unchanged()
+    {
+        GivenTmdbDetails(new TmdbSearchResult { Id = 1, Title = "Anything" });
+
+        await _client.PostAsync("/tmdb/import?tmdbId=1&type=movie", null);
+
+        // The service decides which TMDB path to hit, so translating here would make the
+        // call and the stored media type disagree.
+        await _factory.Tmdb.Received(1).GetDetailsAsync(1, "movie");
+    }
+
+    [Fact]
+    public async Task Importing_copies_the_tmdb_fields_onto_the_new_media()
+    {
+        GivenTmdbDetails(new TmdbSearchResult
+        {
+            Id = 1396,
+            Title = "Fight Club",
+            Overview = "A ticking-time-bomb insomniac.",
+            PosterPath = "/poster.jpg",
+            ReleaseDate = "1999-10-15"
+        });
+        GivenCreatedMedia();
+
+        await _client.PostAsync("/tmdb/import?tmdbId=1396&type=movie", null);
+
+        await _factory.Media.Received(1).AddAsync(Arg.Is<Media>(media =>
+            media.Title == "Fight Club"
+            && media.Overview == "A ticking-time-bomb insomniac."
+            && media.PosterUrl == "https://image.tmdb.org/t/p/w500/poster.jpg"
+            && media.ReleaseYear == 1999
+            && media.TmdbId == 1396));
+    }
+
+    [Fact]
+    public async Task A_show_title_is_read_from_the_name_field()
+    {
+        GivenTmdbDetails(new TmdbSearchResult { Id = 95396, Name = "Severance", FirstAirDate = "2022-02-18" });
+        GivenCreatedMedia();
+
+        await _client.PostAsync("/tmdb/import?tmdbId=95396&type=tv", null);
+
+        await _factory.Media.Received(1).AddAsync(Arg.Is<Media>(media => media.Title == "Severance"));
+    }
+
+    [Fact]
+    public async Task Importing_returns_the_new_rows_location()
+    {
+        GivenTmdbDetails(new TmdbSearchResult { Id = 1396, Title = "Fight Club" });
+        _factory.Media.AddAsync(Arg.Any<Media>()).Returns(11);
+        GivenCreatedMedia(11);
+
+        var response = await _client.PostAsync("/tmdb/import?tmdbId=1396&type=movie", null);
+
+        Assert.Equal("/media/11", response.Headers.Location?.ToString());
+    }
+
+    [Fact]
+    public async Task A_tmdb_id_that_resolves_to_nothing_returns_404()
+    {
+        _factory.Tmdb.GetDetailsAsync(404, Arg.Any<string>()).Returns((TmdbSearchResult?)null);
+
+        var response = await _client.PostAsync("/tmdb/import?tmdbId=404&type=movie", null);
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        await _factory.Media.DidNotReceive().AddAsync(Arg.Any<Media>());
+    }
+
+    private void GivenTmdbDetails(TmdbSearchResult details) =>
+        _factory.Tmdb.GetDetailsAsync(details.Id, Arg.Any<string>()).Returns(details);
+
+    private void GivenCreatedMedia(int mediaId = 1) =>
+        _factory.Media.GetByIdAsync(mediaId).Returns(new Media { MediaId = mediaId, Title = "Created" });
 
     private void GivenExistingMedia() =>
         _factory.Media.GetByIdAsync(7).Returns(new Media
