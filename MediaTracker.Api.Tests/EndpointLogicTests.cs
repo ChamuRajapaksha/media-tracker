@@ -599,6 +599,74 @@ public class EndpointLogicTests : IClassFixture<EndpointApiFactory>
         await _factory.Media.Received(1).AddAsync(Arg.Is<Media>(media => media.PosterUrl == null));
     }
 
+    [Fact]
+    public async Task Importing_seasons_for_a_movie_is_rejected()
+    {
+        _factory.Media.GetByIdAsync(7).Returns(new Media { MediaId = 7, Title = "Fight Club", MediaType = "MOVIE" });
+
+        var response = await _client.PostAsync("/tmdb/import-seasons?mediaId=7", null);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        await _factory.Tmdb.DidNotReceive().GetSeasonsAsync(Arg.Any<int>());
+    }
+
+    [Fact]
+    public async Task Importing_seasons_for_a_show_with_no_tmdb_id_is_rejected()
+    {
+        _factory.Media.GetByIdAsync(7).Returns(new Media { MediaId = 7, Title = "Handmade", MediaType = "SHOW" });
+
+        var response = await _client.PostAsync("/tmdb/import-seasons?mediaId=7", null);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        await _factory.Tmdb.DidNotReceive().GetSeasonsAsync(Arg.Any<int>());
+    }
+
+    [Fact]
+    public async Task Importing_seasons_for_unknown_media_returns_404()
+    {
+        _factory.Media.GetByIdAsync(404).Returns((Media?)null);
+
+        var response = await _client.PostAsync("/tmdb/import-seasons?mediaId=404", null);
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        await _factory.Seasons.DidNotReceive().UpsertAsync(Arg.Any<Season>());
+    }
+
+    [Fact]
+    public async Task The_media_type_guard_runs_before_the_tmdb_id_guard()
+    {
+        _factory.Media.GetByIdAsync(7).Returns(new Media { MediaId = 7, MediaType = "MOVIE" });
+
+        var response = await _client.PostAsync("/tmdb/import-seasons?mediaId=7", null);
+
+        // A movie with no TMDB id has two possible complaints, and saying the more specific
+        // one first saves a user from a message about a show they never asked to import.
+        var body = await response.Content.ReadFromJsonAsync<string>();
+        Assert.Equal("Seasons can only be imported for a show.", body);
+    }
+
+    [Fact]
+    public async Task Importing_seasons_uses_the_media_rows_tmdb_id()
+    {
+        GivenAnImportableShow(7, 95396);
+        _factory.Tmdb.GetSeasonsAsync(95396).Returns([]);
+        _factory.Seasons.UpsertAsync(Arg.Any<Season>()).Returns(1);
+
+        await _client.PostAsync("/tmdb/import-seasons?mediaId=7", null);
+
+        // Not a tmdbId from the query string: the stored one is the only trustworthy source.
+        await _factory.Tmdb.Received(1).GetSeasonsAsync(95396);
+    }
+
+    private void GivenAnImportableShow(int mediaId, int tmdbId) =>
+        _factory.Media.GetByIdAsync(mediaId).Returns(new Media
+        {
+            MediaId = mediaId,
+            Title = "Severance",
+            MediaType = "SHOW",
+            TmdbId = tmdbId
+        });
+
     private void GivenTmdbDetails(TmdbSearchResult details) =>
         _factory.Tmdb.GetDetailsAsync(details.Id, Arg.Any<string>()).Returns(details);
 
