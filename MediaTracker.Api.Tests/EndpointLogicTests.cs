@@ -293,6 +293,50 @@ public class EndpointLogicTests : IClassFixture<EndpointApiFactory>
         Assert.Empty(progress!);
     }
 
+    private static StringContent UpdateRequest(
+        string title = "Severance",
+        string mediaType = "SHOW",
+        int? releaseYear = 2022,
+        string? overview = "Edited from a test",
+        string? posterUrl = null,
+        int? tmdbId = 95396) => new(
+        Json(new
+        {
+            title,
+            mediaType,
+            releaseYear,
+            overview,
+            posterUrl,
+            tmdbId
+        }),
+        System.Text.Encoding.UTF8,
+        "application/json");
+
+    private static string Json(object value) => System.Text.Json.JsonSerializer.Serialize(value);
+
+    [Fact]
+    public async Task Updating_unknown_media_returns_404()
+    {
+        _factory.Media.GetByIdAsync(404).Returns((Media?)null);
+
+        var response = await _client.PutAsync("/media/404", UpdateRequest());
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Updating_unknown_media_writes_nothing()
+    {
+        _factory.Media.GetByIdAsync(404).Returns((Media?)null);
+
+        await _client.PutAsync("/media/404", UpdateRequest());
+
+        // No blind insert behind the 404: a PUT to an id that is not there has to stay a
+        // no-op rather than create a second row that only looks like the one being edited.
+        await _factory.Media.DidNotReceive().UpdateAsync(Arg.Any<Media>());
+        await _factory.Media.DidNotReceive().AddAsync(Arg.Any<Media>());
+    }
+
     private void GivenAValidChain()
     {
         _factory.Seasons.GetByIdAsync(2).Returns(new Season { SeasonId = 2, MediaId = 1, SeasonNumber = 1 });
