@@ -130,9 +130,69 @@ public class EndpointLogicTests : IClassFixture<EndpointApiFactory>
         });
     }
 
+    [Fact]
+    public async Task Watching_the_final_episode_completes_the_media()
+    {
+        GivenAValidChain();
+        GivenSeasonCounts(total: 10, watched: 10);
+
+        var response = await _client.PutAsync("/media/1/seasons/2/episodes/3/progress", null);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        await _factory.WatchStatus.Received(1).SetStatusAsync(1, "COMPLETED");
+    }
+
+    [Fact]
+    public async Task Completing_a_later_season_completes_the_media_not_the_season()
+    {
+        _factory.Seasons.GetByIdAsync(5).Returns(new Season { SeasonId = 5, MediaId = 42, SeasonNumber = 3 });
+        _factory.Episodes.GetByIdAsync(6).Returns(new Episode { EpisodeId = 6, SeasonId = 5, EpisodeNumber = 1 });
+        _factory.Episodes.CountBySeasonIdAsync(5).Returns(1);
+        _factory.Episodes.CountWatchedBySeasonIdAsync(5).Returns(1);
+
+        await _client.PutAsync("/media/42/seasons/5/episodes/6/progress", null);
+
+        // Season 3 of a show is not what the user is completing, the show is.
+        await _factory.WatchStatus.Received(1).SetStatusAsync(42, "COMPLETED");
+    }
+
+    [Fact]
+    public async Task Completing_a_season_reads_both_counts()
+    {
+        GivenAValidChain();
+        GivenSeasonCounts(total: 10, watched: 10);
+
+        await _client.PutAsync("/media/1/seasons/2/episodes/3/progress", null);
+
+        await _factory.Episodes.Received(1).CountBySeasonIdAsync(2);
+        await _factory.Episodes.Received(1).CountWatchedBySeasonIdAsync(2);
+    }
+
+    [Fact]
+    public async Task Completing_a_season_happens_before_the_response_is_read()
+    {
+        GivenAValidChain();
+        GivenSeasonCounts(total: 10, watched: 10);
+
+        await _client.PutAsync("/media/1/seasons/2/episodes/3/progress", null);
+
+        Received.InOrder(() =>
+        {
+            _factory.Progress.MarkWatchedAsync(3);
+            _factory.WatchStatus.SetStatusAsync(1, "COMPLETED");
+            _factory.Progress.GetByEpisodeIdAsync(3);
+        });
+    }
+
     private void GivenAValidChain()
     {
         _factory.Seasons.GetByIdAsync(2).Returns(new Season { SeasonId = 2, MediaId = 1, SeasonNumber = 1 });
         _factory.Episodes.GetByIdAsync(3).Returns(new Episode { EpisodeId = 3, SeasonId = 2, EpisodeNumber = 1 });
+    }
+
+    private void GivenSeasonCounts(int total, int watched)
+    {
+        _factory.Episodes.CountBySeasonIdAsync(2).Returns(total);
+        _factory.Episodes.CountWatchedBySeasonIdAsync(2).Returns(watched);
     }
 }
