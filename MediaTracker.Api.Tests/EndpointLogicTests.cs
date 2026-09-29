@@ -516,6 +516,89 @@ public class EndpointLogicTests : IClassFixture<EndpointApiFactory>
         await _factory.Media.DidNotReceive().AddAsync(Arg.Any<Media>());
     }
 
+    [Fact]
+    public async Task A_movie_with_no_release_date_stores_no_year()
+    {
+        GivenTmdbDetails(new TmdbSearchResult { Id = 1, Title = "Untitled" });
+        GivenCreatedMedia();
+
+        var response = await _client.PostAsync("/tmdb/import?tmdbId=1&type=movie", null);
+
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        await _factory.Media.Received(1).AddAsync(Arg.Is<Media>(media => media.ReleaseYear == null));
+    }
+
+    [Fact]
+    public async Task A_show_with_no_first_air_date_stores_no_year()
+    {
+        GivenTmdbDetails(new TmdbSearchResult { Id = 1, Name = "Untitled" });
+        GivenCreatedMedia();
+
+        await _client.PostAsync("/tmdb/import?tmdbId=1&type=tv", null);
+
+        await _factory.Media.Received(1).AddAsync(Arg.Is<Media>(media => media.ReleaseYear == null));
+    }
+
+    [Fact]
+    public async Task An_empty_date_string_stores_no_year()
+    {
+        // TMDB sends "" rather than null for an unaired episode, and an empty string is
+        // truthy enough to slip past a plain null check before DateTime.TryParse throws.
+        GivenTmdbDetails(new TmdbSearchResult { Id = 1, Title = "Untitled", ReleaseDate = "" });
+        GivenCreatedMedia();
+
+        await _client.PostAsync("/tmdb/import?tmdbId=1&type=movie", null);
+
+        await _factory.Media.Received(1).AddAsync(Arg.Is<Media>(media => media.ReleaseYear == null));
+    }
+
+    [Fact]
+    public async Task A_date_that_cannot_be_parsed_stores_no_year()
+    {
+        GivenTmdbDetails(new TmdbSearchResult { Id = 1, Title = "Untitled", ReleaseDate = "not-a-date" });
+        GivenCreatedMedia();
+
+        var response = await _client.PostAsync("/tmdb/import?tmdbId=1&type=movie", null);
+
+        // A malformed date is not worth failing the whole import over.
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        await _factory.Media.Received(1).AddAsync(Arg.Is<Media>(media => media.ReleaseYear == null));
+    }
+
+    [Fact]
+    public async Task A_movie_release_date_yields_its_year()
+    {
+        GivenTmdbDetails(new TmdbSearchResult { Id = 1, Title = "Fight Club", ReleaseDate = "1999-10-15" });
+        GivenCreatedMedia();
+
+        await _client.PostAsync("/tmdb/import?tmdbId=1&type=movie", null);
+
+        await _factory.Media.Received(1).AddAsync(Arg.Is<Media>(media => media.ReleaseYear == 1999));
+    }
+
+    [Fact]
+    public async Task A_show_first_air_date_yields_its_year()
+    {
+        GivenTmdbDetails(new TmdbSearchResult { Id = 1, Name = "Severance", FirstAirDate = "2022-02-18" });
+        GivenCreatedMedia();
+
+        await _client.PostAsync("/tmdb/import?tmdbId=1&type=tv", null);
+
+        await _factory.Media.Received(1).AddAsync(Arg.Is<Media>(media => media.ReleaseYear == 2022));
+    }
+
+    [Fact]
+    public async Task A_missing_poster_path_stores_no_poster_url()
+    {
+        GivenTmdbDetails(new TmdbSearchResult { Id = 1, Title = "Untitled" });
+        GivenCreatedMedia();
+
+        await _client.PostAsync("/tmdb/import?tmdbId=1&type=movie", null);
+
+        // Empty string rather than null would give a broken image request on the client.
+        await _factory.Media.Received(1).AddAsync(Arg.Is<Media>(media => media.PosterUrl == null));
+    }
+
     private void GivenTmdbDetails(TmdbSearchResult details) =>
         _factory.Tmdb.GetDetailsAsync(details.Id, Arg.Any<string>()).Returns(details);
 
