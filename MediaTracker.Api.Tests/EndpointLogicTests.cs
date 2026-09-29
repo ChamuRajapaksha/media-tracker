@@ -231,6 +231,68 @@ public class EndpointLogicTests : IClassFixture<EndpointApiFactory>
         await _factory.Progress.Received(1).MarkWatchedAsync(3);
     }
 
+    [Fact]
+    public async Task Unmarking_an_episode_that_was_never_watched_returns_404()
+    {
+        _factory.Progress.MarkUnwatchedAsync(3).Returns(false);
+
+        var response = await _client.DeleteAsync("/media/1/seasons/2/episodes/3/progress");
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Unmarking_a_watched_episode_returns_no_content()
+    {
+        _factory.Progress.MarkUnwatchedAsync(3).Returns(true);
+
+        var response = await _client.DeleteAsync("/media/1/seasons/2/episodes/3/progress");
+
+        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Unmarking_does_not_change_the_watch_status()
+    {
+        _factory.Progress.MarkUnwatchedAsync(3).Returns(true);
+
+        await _client.DeleteAsync("/media/1/seasons/2/episodes/3/progress");
+
+        // The media stays COMPLETED after an unmark, which the plan records as known Stage A
+        // behaviour rather than something this endpoint silently fixes.
+        await _factory.WatchStatus.DidNotReceive().SetStatusAsync(Arg.Any<int>(), Arg.Any<string>());
+    }
+
+    [Fact]
+    public async Task Reading_season_progress_returns_the_seasons_rows()
+    {
+        var rows = new[]
+        {
+            new EpisodeProgress { EpisodeId = 3, WatchedAt = new DateTime(2026, 9, 20, 8, 0, 0, DateTimeKind.Utc) },
+            new EpisodeProgress { EpisodeId = 4, WatchedAt = new DateTime(2026, 9, 21, 8, 0, 0, DateTimeKind.Utc) }
+        };
+        _factory.Progress.GetBySeasonIdAsync(2).Returns(rows);
+
+        var response = await _client.GetAsync("/media/1/seasons/2/progress");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var progress = await response.Content.ReadFromJsonAsync<List<EpisodeProgress>>();
+        Assert.Equal([3, 4], progress?.Select(p => p.EpisodeId));
+    }
+
+    [Fact]
+    public async Task Reading_season_progress_for_a_season_with_nothing_watched_returns_an_empty_list()
+    {
+        _factory.Progress.GetBySeasonIdAsync(2).Returns([]);
+
+        var response = await _client.GetAsync("/media/1/seasons/2/progress");
+
+        // An unwatched season is empty, not missing, so the body is [] rather than a 404.
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var progress = await response.Content.ReadFromJsonAsync<List<EpisodeProgress>>();
+        Assert.Empty(progress!);
+    }
+
     private void GivenAValidChain()
     {
         _factory.Seasons.GetByIdAsync(2).Returns(new Season { SeasonId = 2, MediaId = 1, SeasonNumber = 1 });
