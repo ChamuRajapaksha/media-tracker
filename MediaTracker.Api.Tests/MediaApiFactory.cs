@@ -26,6 +26,10 @@ public class MediaApiFactory : WebApplicationFactory<Program>
 /// Runs the real routing and the real endpoint delegates, but swaps every repository and the
 /// TMDB service for a substitute. That leaves only the orchestration in the endpoint to test,
 /// which is the part that can be checked without a database or a network call.
+///
+/// One of these per test, not per class. NSubstitute keeps the Returns setup from a test
+/// after that test ends, so a shared instance would let a later test pass on a stub the
+/// earlier one installed.
 /// </summary>
 public sealed class EndpointApiFactory : MediaApiFactory
 {
@@ -37,22 +41,6 @@ public sealed class EndpointApiFactory : MediaApiFactory
     public IWatchStatusRepository WatchStatus { get; } = Substitute.For<IWatchStatusRepository>();
     public IRatingRepository Ratings { get; } = Substitute.For<IRatingRepository>();
     public ITmdbService Tmdb { get; } = Substitute.For<ITmdbService>();
-
-    /// <summary>
-    /// The fixture is shared by every test in a class, so the recorded calls have to be
-    /// dropped between tests or a DidNotReceive assertion sees the previous test's traffic.
-    /// </summary>
-    public void Reset()
-    {
-        Media.ClearReceivedCalls();
-        Genres.ClearReceivedCalls();
-        Seasons.ClearReceivedCalls();
-        Episodes.ClearReceivedCalls();
-        Progress.ClearReceivedCalls();
-        WatchStatus.ClearReceivedCalls();
-        Ratings.ClearReceivedCalls();
-        Tmdb.ClearReceivedCalls();
-    }
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {

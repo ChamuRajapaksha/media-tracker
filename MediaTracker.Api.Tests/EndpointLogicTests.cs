@@ -6,16 +6,21 @@ using NSubstitute;
 
 namespace MediaTracker.Api.Tests;
 
-public class EndpointLogicTests : IClassFixture<EndpointApiFactory>
+public class EndpointLogicTests : IDisposable
 {
     private readonly EndpointApiFactory _factory;
     private readonly HttpClient _client;
 
-    public EndpointLogicTests(EndpointApiFactory factory)
+    public EndpointLogicTests()
     {
-        _factory = factory;
-        _factory.Reset();
-        _client = factory.CreateClient();
+        _factory = new EndpointApiFactory();
+        _client = _factory.CreateClient();
+    }
+
+    public void Dispose()
+    {
+        _client.Dispose();
+        _factory.Dispose();
     }
 
     [Fact]
