@@ -8,6 +8,9 @@ namespace MediaTracker.Api.Tests;
 
 public class EndpointLogicTests : IDisposable
 {
+    // TmdbEndpoints returns an anonymous object, so the tests need a matching shape to read.
+    private sealed record ImportResult(int MediaId, int SeasonsImported, int EpisodesImported);
+
     private readonly EndpointApiFactory _factory;
     private readonly HttpClient _client;
 
@@ -661,6 +664,152 @@ public class EndpointLogicTests : IDisposable
 
         // Not a tmdbId from the query string: the stored one is the only trustworthy source.
         await _factory.Tmdb.Received(1).GetSeasonsAsync(95396);
+    }
+
+    [Fact]
+    public async Task Season_zero_is_not_imported()
+    {
+        // Season 0 is the TMDB specials bucket, not a numbered season.
+        GivenAnImportableShow(7, 95396);
+        GivenSeasonSummaries(0, 1, 2);
+        GivenSeasonDetails(1, 2);
+
+        await _client.PostAsync("/tmdb/import-seasons?mediaId=7", null);
+
+        await _factory.Tmdb.DidNotReceive().GetSeasonAsync(95396, 0);
+        await _factory.Seasons.Received(2).UpsertAsync(Arg.Any<Season>());
+    }
+
+    [Fact]
+    public async Task Seasons_are_imported_in_number_order()
+    {
+        GivenAnImportableShow(7, 95396);
+        GivenSeasonSummaries(3, 1, 2);
+        GivenSeasonDetails(1, 2, 3);
+
+        await _client.PostAsync("/tmdb/import-seasons?mediaId=7", null);
+
+        Received.InOrder(() =>
+        {
+            _factory.Tmdb.GetSeasonAsync(95396, 1);
+            _factory.Tmdb.GetSeasonAsync(95396, 2);
+            _factory.Tmdb.GetSeasonAsync(95396, 3);
+        });
+    }
+
+    [Fact]
+    public async Task A_show_with_more_than_twenty_five_seasons_stops_at_twenty_five()
+    {
+        GivenAnImportableShow(7, 95396);
+        GivenSeasonSummaries([.. Enumerable.Range(1, 30)]);
+        _factory.Tmdb.GetSeasonAsync(Arg.Any<int>(), Arg.Any<int>())
+            .Returns(call => new TmdbSeasonDetail { SeasonNumber = call.ArgAt<int>(1) });
+        _factory.Seasons.UpsertAsync(Arg.Any<Season>()).Returns(1);
+
+        var response = await _client.PostAsync("/tmdb/import-seasons?mediaId=7", null);
+
+        var result = await response.Content.ReadFromJsonAsync<ImportResult>();
+        Assert.Equal(25, result?.SeasonsImported);
+        // TMDB needs one call per season, so an uncapped import of a long-running show turns
+        // into a request that hangs for minutes.
+        await _factory.Tmdb.Received(25).GetSeasonAsync(Arg.Any<int>(), Arg.Any<int>());
+    }
+
+    [Fact]
+    public async Task A_season_with_no_detail_is_skipped_without_failing_the_import()
+    {
+        GivenAnImportableShow(7, 95396);
+        GivenSeasonSummaries(1, 2);
+        _factory.Tmdb.GetSeasonAsync(95396, 1).Returns((TmdbSeasonDetail?)null);
+        _factory.Tmdb.GetSeasonAsync(95396, 2)
+            .Returns(new TmdbSeasonDetail { SeasonNumber = 2, Name = "Season 2" });
+        _factory.Seasons.UpsertAsync(Arg.Any<Season>()).Returns(1);
+
+        var response = await _client.PostAsync("/tmdb/import-seasons?mediaId=7", null);
+
+        var result = await response.Content.ReadFromJsonAsync<ImportResult>();
+        Assert.Equal(1, result?.SeasonsImported);
+        await _factory.Seasons.Received(1).UpsertAsync(Arg.Is<Season>(season => season.SeasonNumber == 2));
+    }
+
+    [Fact]
+    public async Task Imported_episodes_are_attached_to_the_season_they_belong_to()
+    {
+        GivenAnImportableShow(7, 95396);
+        _factory.Tmdb.GetSeasonsAsync(95396).Returns([new TmdbSeasonSummary { Id = 1, SeasonNumber = 1 }]);
+        _factory.Tmdb.GetSeasonAsync(95396, 1).Returns(new TmdbSeasonDetail
+        {
+            SeasonNumber = 1,
+            Name = "Season 1",
+            Episodes =
+            [
+                new TmdbEpisode { Id = 10, EpisodeNumber = 1, Name = "Good News About Hell", AirDate = "2022-02-18" },
+                new TmdbEpisode { Id = 11, EpisodeNumber = 2, Name = "Half Loop", AirDate = "2022-02-25" }
+            ]
+        });
+        _factory.Seasons.UpsertAsync(Arg.Any<Season>()).Returns(50);
+        _factory.Episodes.UpsertAsync(Arg.Any<Episode>()).Returns(0);
+
+        var response = await _client.PostAsync("/tmdb/import-seasons?mediaId=7", null);
+
+        var result = await response.Content.ReadFromJsonAsync<ImportResult>();
+        Assert.Equal(1, result?.SeasonsImported);
+        Assert.Equal(2, result?.EpisodesImported);
+        await _factory.Episodes.Received(2).UpsertAsync(Arg.Any<Episode>());
+        await _factory.Episodes.Received(1).UpsertAsync(Arg.Is<Episode>(episode =>
+            episode.SeasonId == 50
+            && episode.Title == "Half Loop"
+            && episode.EpisodeNumber == 2
+            && episode.AirDate == new DateTime(2022, 2, 25)));
+    }
+
+    [Fact]
+    public async Task An_episode_with_no_air_date_is_stored_with_a_null_date()
+    {
+        GivenAnImportableShow(7, 95396);
+        _factory.Tmdb.GetSeasonsAsync(95396).Returns([new TmdbSeasonSummary { Id = 1, SeasonNumber = 1 }]);
+        _factory.Tmdb.GetSeasonAsync(95396, 1).Returns(new TmdbSeasonDetail
+        {
+            SeasonNumber = 1,
+            Episodes = [new TmdbEpisode { Id = 10, EpisodeNumber = 1, Name = "Unaired", AirDate = "" }]
+        });
+        _factory.Seasons.UpsertAsync(Arg.Any<Season>()).Returns(50);
+        _factory.Episodes.UpsertAsync(Arg.Any<Episode>()).Returns(0);
+
+        var response = await _client.PostAsync("/tmdb/import-seasons?mediaId=7", null);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        await _factory.Episodes.Received(1).UpsertAsync(Arg.Is<Episode>(episode => episode.AirDate == null));
+    }
+
+    [Fact]
+    public async Task The_import_result_reports_the_media_it_touched()
+    {
+        GivenAnImportableShow(7, 95396);
+        _factory.Tmdb.GetSeasonsAsync(95396).Returns([]);
+        _factory.Seasons.UpsertAsync(Arg.Any<Season>()).Returns(1);
+
+        var response = await _client.PostAsync("/tmdb/import-seasons?mediaId=7", null);
+
+        var result = await response.Content.ReadFromJsonAsync<ImportResult>();
+        Assert.Equal(7, result?.MediaId);
+        Assert.Equal(0, result?.SeasonsImported);
+        Assert.Equal(0, result?.EpisodesImported);
+    }
+
+    private void GivenSeasonSummaries(params int[] seasonNumbers) =>
+        _factory.Tmdb.GetSeasonsAsync(95396).Returns(
+            Array.ConvertAll(seasonNumbers, n => new TmdbSeasonSummary { Id = n, SeasonNumber = n }).ToList());
+
+    private void GivenSeasonDetails(params int[] seasonNumbers)
+    {
+        foreach (var seasonNumber in seasonNumbers)
+        {
+            _factory.Tmdb.GetSeasonAsync(95396, seasonNumber)
+                .Returns(new TmdbSeasonDetail { SeasonNumber = seasonNumber, Name = $"Season {seasonNumber}" });
+        }
+
+        _factory.Seasons.UpsertAsync(Arg.Any<Season>()).Returns(1);
     }
 
     private void GivenAnImportableShow(int mediaId, int tmdbId) =>
