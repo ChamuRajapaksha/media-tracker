@@ -184,6 +184,53 @@ public class EndpointLogicTests : IClassFixture<EndpointApiFactory>
         });
     }
 
+    [Fact]
+    public async Task Watching_mid_season_leaves_the_status_alone()
+    {
+        GivenAValidChain();
+        GivenSeasonCounts(total: 10, watched: 4);
+
+        var response = await _client.PutAsync("/media/1/seasons/2/episodes/3/progress", null);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        await _factory.WatchStatus.DidNotReceive().SetStatusAsync(Arg.Any<int>(), Arg.Any<string>());
+    }
+
+    [Fact]
+    public async Task Watching_the_second_to_last_episode_leaves_the_status_alone()
+    {
+        GivenAValidChain();
+        GivenSeasonCounts(total: 10, watched: 9);
+
+        await _client.PutAsync("/media/1/seasons/2/episodes/3/progress", null);
+
+        await _factory.WatchStatus.DidNotReceive().SetStatusAsync(Arg.Any<int>(), Arg.Any<string>());
+    }
+
+    [Fact]
+    public async Task An_empty_season_is_never_treated_as_complete()
+    {
+        GivenAValidChain();
+        GivenSeasonCounts(total: 0, watched: 0);
+
+        await _client.PutAsync("/media/1/seasons/2/episodes/3/progress", null);
+
+        // Zero of zero is complete by a naive watched >= total. Dividing by it, or letting a
+        // season with no episodes imported yet finish the show, would both be wrong.
+        await _factory.WatchStatus.DidNotReceive().SetStatusAsync(Arg.Any<int>(), Arg.Any<string>());
+    }
+
+    [Fact]
+    public async Task The_episode_is_still_marked_watched_when_the_status_is_not_changed()
+    {
+        GivenAValidChain();
+        GivenSeasonCounts(total: 10, watched: 4);
+
+        await _client.PutAsync("/media/1/seasons/2/episodes/3/progress", null);
+
+        await _factory.Progress.Received(1).MarkWatchedAsync(3);
+    }
+
     private void GivenAValidChain()
     {
         _factory.Seasons.GetByIdAsync(2).Returns(new Season { SeasonId = 2, MediaId = 1, SeasonNumber = 1 });
