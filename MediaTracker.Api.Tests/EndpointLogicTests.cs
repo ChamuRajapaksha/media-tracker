@@ -293,6 +293,93 @@ public class EndpointLogicTests : IClassFixture<EndpointApiFactory>
         Assert.Empty(progress!);
     }
 
+    [Fact]
+    public async Task Updating_media_maps_every_request_field_onto_the_model()
+    {
+        GivenExistingMedia();
+        _factory.Media.UpdateAsync(Arg.Any<Media>()).Returns(true);
+        GivenUpdatedMedia();
+
+        var response = await _client.PutAsync("/media/7", UpdateRequest(
+            title: "Severance (updated)",
+            mediaType: "MOVIE",
+            releaseYear: 2023,
+            overview: "Edited overview",
+            posterUrl: "https://example.test/poster.jpg",
+            tmdbId: 1396));
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        await _factory.Media.Received(1).UpdateAsync(Arg.Is<Media>(media =>
+            media.MediaId == 7
+            && media.Title == "Severance (updated)"
+            && media.MediaType == "MOVIE"
+            && media.ReleaseYear == 2023
+            && media.Overview == "Edited overview"
+            && media.PosterUrl == "https://example.test/poster.jpg"
+            && media.TmdbId == 1396));
+    }
+
+    [Fact]
+    public async Task Updating_media_keeps_the_id_from_the_url()
+    {
+        GivenExistingMedia();
+        _factory.Media.UpdateAsync(Arg.Any<Media>()).Returns(true);
+        GivenUpdatedMedia();
+
+        await _client.PutAsync("/media/7", UpdateRequest());
+
+        // The id comes from the route, never the body, so a request cannot move an update
+        // onto a different row than the one it named.
+        await _factory.Media.Received(1).UpdateAsync(Arg.Is<Media>(media => media.MediaId == 7));
+    }
+
+    [Fact]
+    public async Task Updating_media_never_overwrites_created_at()
+    {
+        GivenExistingMedia();
+        _factory.Media.UpdateAsync(Arg.Any<Media>()).Returns(true);
+        GivenUpdatedMedia();
+
+        await _client.PutAsync("/media/7", UpdateRequest());
+
+        // MediaUpdateRequest has no CreatedAt member, so the timestamp the model is built
+        // with is the default and the repository has to leave the stored column alone.
+        await _factory.Media.Received(1).UpdateAsync(
+            Arg.Is<Media>(media => media.CreatedAt == default));
+    }
+
+    [Fact]
+    public async Task Updating_media_clears_fields_that_are_sent_as_null()
+    {
+        GivenExistingMedia();
+        _factory.Media.UpdateAsync(Arg.Any<Media>()).Returns(true);
+        GivenUpdatedMedia();
+
+        await _client.PutAsync("/media/7", UpdateRequest(releaseYear: null, overview: null, posterUrl: null, tmdbId: null));
+
+        await _factory.Media.Received(1).UpdateAsync(Arg.Is<Media>(media =>
+            media.ReleaseYear == null
+            && media.Overview == null
+            && media.PosterUrl == null
+            && media.TmdbId == null));
+    }
+
+    [Fact]
+    public async Task Updating_media_returns_the_row_as_it_stands_afterwards()
+    {
+        GivenExistingMedia();
+        _factory.Media.UpdateAsync(Arg.Any<Media>()).Returns(true);
+        GivenUpdatedMedia();
+
+        var response = await _client.PutAsync("/media/7", UpdateRequest());
+
+        var body = await response.Content.ReadFromJsonAsync<Media>();
+        Assert.NotNull(body);
+        Assert.Equal("Severance (updated by the database)", body.Title);
+        Assert.Equal(7, body.MediaId);
+    }
+
     private static StringContent UpdateRequest(
         string title = "Severance",
         string mediaType = "SHOW",
@@ -336,6 +423,25 @@ public class EndpointLogicTests : IClassFixture<EndpointApiFactory>
         await _factory.Media.DidNotReceive().UpdateAsync(Arg.Any<Media>());
         await _factory.Media.DidNotReceive().AddAsync(Arg.Any<Media>());
     }
+
+    private void GivenExistingMedia() =>
+        _factory.Media.GetByIdAsync(7).Returns(new Media
+        {
+            MediaId = 7,
+            Title = "Severance",
+            MediaType = "SHOW",
+            ReleaseYear = 2022,
+            CreatedAt = new DateTime(2020, 1, 2, 3, 4, 5, DateTimeKind.Utc)
+        });
+
+    private void GivenUpdatedMedia() =>
+        _factory.Media.GetByIdAsync(7).Returns(new Media
+        {
+            MediaId = 7,
+            Title = "Severance (updated by the database)",
+            MediaType = "SHOW",
+            ReleaseYear = 2022
+        });
 
     private void GivenAValidChain()
     {
