@@ -1,3 +1,5 @@
+using System.Net;
+using System.Text.Json;
 using MediaTracker.Api.Models.Tmdb;
 using MediaTracker.Api.Services;
 using Microsoft.AspNetCore.WebUtilities;
@@ -291,6 +293,109 @@ public class TmdbServiceTests : IDisposable
         var result = Assert.Single(await service.SearchAsync("a", "tv"));
 
         Assert.Equal(7, result.Id);
+    }
+
+    [Fact]
+    public async Task SearchAsync_returns_an_empty_list_for_a_null_payload()
+    {
+        var handler = FakeTmdbHandler.ReturningJson("null");
+        var service = CreateService(handler);
+
+        var results = await service.SearchAsync("a", "movie");
+
+        Assert.Empty(results);
+    }
+
+    [Fact]
+    public async Task SearchAsync_returns_an_empty_list_when_results_is_null()
+    {
+        var handler = FakeTmdbHandler.ReturningJson("""{"page":1,"results":null}""");
+        var service = CreateService(handler);
+
+        var results = await service.SearchAsync("a", "movie");
+
+        Assert.Empty(results);
+    }
+
+    [Fact]
+    public async Task GetSeasonsAsync_returns_an_empty_list_for_a_null_payload()
+    {
+        var handler = FakeTmdbHandler.ReturningJson("null");
+        var service = CreateService(handler);
+
+        var seasons = await service.GetSeasonsAsync(1396);
+
+        Assert.Empty(seasons);
+    }
+
+    [Fact]
+    public async Task GetSeasonsAsync_returns_an_empty_list_when_seasons_is_null()
+    {
+        var handler = FakeTmdbHandler.ReturningJson("""{"id":1396,"seasons":null}""");
+        var service = CreateService(handler);
+
+        var seasons = await service.GetSeasonsAsync(1396);
+
+        Assert.Empty(seasons);
+    }
+
+    [Fact]
+    public async Task GetDetailsAsync_returns_null_for_a_null_payload()
+    {
+        var handler = FakeTmdbHandler.ReturningJson("null");
+        var service = CreateService(handler);
+
+        Assert.Null(await service.GetDetailsAsync(1396, "tv"));
+    }
+
+    [Fact]
+    public async Task GetSeasonAsync_returns_null_for_a_null_payload()
+    {
+        var handler = FakeTmdbHandler.ReturningJson("null");
+        var service = CreateService(handler);
+
+        Assert.Null(await service.GetSeasonAsync(1396, 1));
+    }
+
+    [Fact]
+    public async Task SearchAsync_throws_rather_than_returning_a_half_built_list()
+    {
+        var handler = FakeTmdbHandler.Failing(HttpStatusCode.NotFound);
+        var service = CreateService(handler);
+
+        await Assert.ThrowsAsync<HttpRequestException>(() => service.SearchAsync("a", "movie"));
+    }
+
+    [Theory]
+    [InlineData(HttpStatusCode.Unauthorized)]
+    [InlineData(HttpStatusCode.TooManyRequests)]
+    [InlineData(HttpStatusCode.InternalServerError)]
+    public async Task An_error_status_becomes_an_exception_not_an_empty_result(HttpStatusCode statusCode)
+    {
+        var handler = FakeTmdbHandler.Failing(statusCode);
+        var service = CreateService(handler);
+
+        await Assert.ThrowsAsync<HttpRequestException>(() => service.GetDetailsAsync(1, "movie"));
+    }
+
+    [Fact]
+    public async Task An_error_status_throws_for_the_season_calls_too()
+    {
+        var seasonList = CreateService(FakeTmdbHandler.Failing(HttpStatusCode.ServiceUnavailable));
+        var seasonDetail = CreateService(FakeTmdbHandler.Failing(HttpStatusCode.ServiceUnavailable));
+
+        await Assert.ThrowsAsync<HttpRequestException>(() => seasonList.GetSeasonsAsync(1));
+        await Assert.ThrowsAsync<HttpRequestException>(() => seasonDetail.GetSeasonAsync(1, 1));
+    }
+
+    [Fact]
+    public async Task A_response_body_that_is_not_json_throws()
+    {
+        // TMDB returns HTML from its edge when it is unhappy; that must not read as an empty result.
+        var handler = FakeTmdbHandler.ReturningJson("<html>gateway timeout</html>");
+        var service = CreateService(handler);
+
+        await Assert.ThrowsAsync<JsonException>(() => service.SearchAsync("a", "movie"));
     }
 
     private TmdbService CreateService(FakeTmdbHandler handler)
