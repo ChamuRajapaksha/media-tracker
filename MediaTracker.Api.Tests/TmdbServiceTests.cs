@@ -1,4 +1,5 @@
 using MediaTracker.Api.Services;
+using Microsoft.AspNetCore.WebUtilities;
 using Microsoft.Extensions.Configuration;
 using NSubstitute;
 
@@ -61,6 +62,69 @@ public class TmdbServiceTests : IDisposable
         Assert.Equal(
             $"/3/search/movie?query={expected}&api_key={ApiKey}",
             handler.LastRequestPathAndQuery);
+    }
+
+    [Fact]
+    public async Task GetDetailsAsync_calls_the_movie_details_endpoint()
+    {
+        var handler = FakeTmdbHandler.ReturningJson("""{"id":603}""");
+        var service = CreateService(handler);
+
+        await service.GetDetailsAsync(603, "movie");
+
+        Assert.Equal($"/3/movie/603?api_key={ApiKey}", handler.LastRequestPathAndQuery);
+    }
+
+    [Fact]
+    public async Task GetDetailsAsync_calls_the_tv_details_endpoint()
+    {
+        var handler = FakeTmdbHandler.ReturningJson("""{"id":1396}""");
+        var service = CreateService(handler);
+
+        await service.GetDetailsAsync(1396, "tv");
+
+        Assert.Equal($"/3/tv/1396?api_key={ApiKey}", handler.LastRequestPathAndQuery);
+    }
+
+    [Fact]
+    public async Task GetSeasonsAsync_calls_the_tv_season_list_endpoint()
+    {
+        var handler = FakeTmdbHandler.ReturningJson("""{"seasons":[]}""");
+        var service = CreateService(handler);
+
+        await service.GetSeasonsAsync(1396);
+
+        Assert.Equal($"/3/tv/1396?api_key={ApiKey}", handler.LastRequestPathAndQuery);
+    }
+
+    [Fact]
+    public async Task GetSeasonAsync_calls_the_tv_season_detail_endpoint()
+    {
+        var handler = FakeTmdbHandler.ReturningJson("""{"season_number":1}""");
+        var service = CreateService(handler);
+
+        await service.GetSeasonAsync(1396, 1);
+
+        Assert.Equal($"/3/tv/1396/season/1?api_key={ApiKey}", handler.LastRequestPathAndQuery);
+    }
+
+    [Fact]
+    public async Task Every_call_sends_the_api_key_as_a_query_parameter_only()
+    {
+        var handler = FakeTmdbHandler.RespondingWith(NoResults, """{"id":1}""", """{"seasons":[]}""", """{"id":2}""");
+        var service = CreateService(handler);
+
+        await service.SearchAsync("a", "movie");
+        await service.GetDetailsAsync(1, "movie");
+        await service.GetSeasonsAsync(1);
+        await service.GetSeasonAsync(1, 0);
+
+        Assert.Equal(4, handler.Requests.Count);
+        Assert.All(handler.Requests, uri =>
+        {
+            Assert.Equal(ApiKey, QueryHelpers.ParseQuery(uri.Query)["api_key"]);
+            Assert.DoesNotContain(ApiKey, uri.AbsolutePath);
+        });
     }
 
     private TmdbService CreateService(FakeTmdbHandler handler)
