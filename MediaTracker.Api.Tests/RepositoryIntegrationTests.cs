@@ -284,4 +284,40 @@ public class RepositoryIntegrationTests : IClassFixture<MediaApiFactory>, IAsync
 
         Assert.False(updated);
     }
+
+    [IntegrationFact]
+    public async Task Deleting_media_removes_the_row()
+    {
+        var media = await AddMediaAsync("delete-existing");
+
+        Assert.True(await Media.DeleteAsync(media.MediaId));
+        Assert.Null(await Media.GetByIdAsync(media.MediaId));
+    }
+
+    [IntegrationFact]
+    public async Task Deleting_the_same_media_twice_reports_no_rows_the_second_time()
+    {
+        var media = await AddMediaAsync("delete-twice");
+
+        Assert.True(await Media.DeleteAsync(media.MediaId));
+        Assert.False(await Media.DeleteAsync(media.MediaId));
+    }
+
+    [IntegrationFact]
+    public async Task Deleting_an_unknown_media_id_reports_no_rows_changed()
+    {
+        Assert.False(await Media.DeleteAsync(-1));
+    }
+
+    [IntegrationFact]
+    public async Task Deleting_one_media_leaves_the_others_alone()
+    {
+        var deleted = await AddMediaAsync("delete-one-of-two-a");
+        var kept = await AddMediaAsync("delete-one-of-two-b");
+
+        await Media.DeleteAsync(deleted.MediaId);
+
+        Assert.Null(await Media.GetByIdAsync(deleted.MediaId));
+        Assert.NotNull(await Media.GetByIdAsync(kept.MediaId));
+    }
 }
