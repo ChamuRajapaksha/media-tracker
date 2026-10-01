@@ -451,4 +451,101 @@ public class RepositoryIntegrationTests : IClassFixture<MediaApiFactory>, IAsync
         Assert.Empty(await Media.GetGenresForMediaAsync(media.MediaId));
         Assert.NotNull(await Media.GetByIdAsync(media.MediaId));
     }
+
+    [IntegrationFact]
+    public async Task Setting_watch_status_inserts_the_missing_row()
+    {
+        var media = await AddMediaAsync("watch-status-insert");
+
+        await WatchStatus.SetStatusAsync(media.MediaId, "PLAN_TO_WATCH");
+
+        var status = await WatchStatus.GetByMediaIdAsync(media.MediaId);
+
+        Assert.NotNull(status);
+        Assert.Equal(media.MediaId, status.MediaId);
+        Assert.Equal("PLAN_TO_WATCH", status.Status);
+    }
+
+    [IntegrationFact]
+    public async Task Setting_watch_status_again_updates_the_existing_row()
+    {
+        var media = await AddMediaAsync("watch-status-update");
+
+        await WatchStatus.SetStatusAsync(media.MediaId, "PLAN_TO_WATCH");
+        await WatchStatus.SetStatusAsync(media.MediaId, "WATCHING");
+
+        var status = await WatchStatus.GetByMediaIdAsync(media.MediaId);
+
+        Assert.NotNull(status);
+        Assert.Equal("WATCHING", status.Status);
+    }
+
+    [IntegrationFact]
+    public async Task Setting_watch_status_again_leaves_exactly_one_row()
+    {
+        var media = await AddMediaAsync("watch-status-single-row");
+
+        await WatchStatus.SetStatusAsync(media.MediaId, "PLAN_TO_WATCH");
+        await WatchStatus.SetStatusAsync(media.MediaId, "WATCHING");
+        await WatchStatus.SetStatusAsync(media.MediaId, "COMPLETED");
+
+        using var connection = OpenConnection();
+        var rows = await connection.QuerySingleAsync<int>(
+            "SELECT COUNT(*) FROM watch_status WHERE media_id = :Id",
+            new { Id = media.MediaId });
+
+        Assert.Equal(1, rows);
+    }
+
+    [IntegrationFact]
+    public async Task Setting_watch_status_again_keeps_the_same_row_identity()
+    {
+        var media = await AddMediaAsync("watch-status-identity");
+
+        await WatchStatus.SetStatusAsync(media.MediaId, "WATCHING");
+        var first = (await WatchStatus.GetByMediaIdAsync(media.MediaId))!;
+
+        await WatchStatus.SetStatusAsync(media.MediaId, "COMPLETED");
+        var second = (await WatchStatus.GetByMediaIdAsync(media.MediaId))!;
+
+        Assert.Equal(first.WatchStatusId, second.WatchStatusId);
+    }
+
+    [IntegrationFact]
+    public async Task Setting_watch_status_again_moves_updated_at_forward()
+    {
+        var media = await AddMediaAsync("watch-status-timestamp");
+
+        await WatchStatus.SetStatusAsync(media.MediaId, "WATCHING");
+        var first = (await WatchStatus.GetByMediaIdAsync(media.MediaId))!.UpdatedAt;
+
+        // SYSDATE has a one-second resolution, so the second write needs a real gap to
+        // register. A second of sleep is cheap next to a flaky assertion.
+        await Task.Delay(TimeSpan.FromSeconds(1.1));
+        await WatchStatus.SetStatusAsync(media.MediaId, "COMPLETED");
+        var second = (await WatchStatus.GetByMediaIdAsync(media.MediaId))!.UpdatedAt;
+
+        Assert.True(second > first, $"expected {second:O} to be later than {first:O}");
+    }
+
+    [IntegrationFact]
+    public async Task Reading_watch_status_for_media_without_one_returns_null()
+    {
+        var media = await AddMediaAsync("watch-status-missing");
+
+        Assert.Null(await WatchStatus.GetByMediaIdAsync(media.MediaId));
+    }
+
+    [IntegrationFact]
+    public async Task Watch_status_is_scoped_to_its_own_media_row()
+    {
+        var first = await AddMediaAsync("watch-status-scope-a");
+        var second = await AddMediaAsync("watch-status-scope-b");
+
+        await WatchStatus.SetStatusAsync(first.MediaId, "WATCHING");
+        await WatchStatus.SetStatusAsync(second.MediaId, "COMPLETED");
+
+        Assert.Equal("WATCHING", (await WatchStatus.GetByMediaIdAsync(first.MediaId))!.Status);
+        Assert.Equal("COMPLETED", (await WatchStatus.GetByMediaIdAsync(second.MediaId))!.Status);
+    }
 }
