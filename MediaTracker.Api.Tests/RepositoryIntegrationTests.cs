@@ -209,4 +209,79 @@ public class RepositoryIntegrationTests : IClassFixture<MediaApiFactory>, IAsync
 
         Assert.Contains(all, item => item.MediaId == media.MediaId);
     }
+
+    [IntegrationFact]
+    public async Task Updating_media_changes_the_editable_columns()
+    {
+        var media = await AddMediaAsync("update-before", "MOVIE", 2001);
+
+        var updated = await Media.UpdateAsync(new Media
+        {
+            MediaId = media.MediaId,
+            Title = Marker + "update-after",
+            MediaType = "SHOW",
+            ReleaseYear = 2025,
+            Overview = Marker + "update-overview",
+            PosterUrl = "https://example.invalid/updated.jpg",
+            TmdbId = 777
+        });
+
+        Assert.True(updated);
+
+        var reloaded = await Media.GetByIdAsync(media.MediaId);
+
+        Assert.NotNull(reloaded);
+        Assert.Equal(Marker + "update-after", reloaded.Title);
+        Assert.Equal("SHOW", reloaded.MediaType);
+        Assert.Equal(2025, reloaded.ReleaseYear);
+        Assert.Equal(Marker + "update-overview", reloaded.Overview);
+        Assert.Equal("https://example.invalid/updated.jpg", reloaded.PosterUrl);
+        Assert.Equal(777, reloaded.TmdbId);
+    }
+
+    [IntegrationFact]
+    public async Task Updating_media_leaves_created_at_alone()
+    {
+        var media = await AddMediaAsync("update-preserves-created-at");
+        var before = (await Media.GetByIdAsync(media.MediaId))!.CreatedAt;
+
+        await Media.UpdateAsync(new Media
+        {
+            MediaId = media.MediaId,
+            Title = Marker + "update-preserves-created-at-renamed",
+            MediaType = "MOVIE"
+        });
+
+        var after = (await Media.GetByIdAsync(media.MediaId))!.CreatedAt;
+
+        Assert.Equal(before, after);
+    }
+
+    [IntegrationFact]
+    public async Task Updating_media_does_not_rename_the_row_when_the_title_is_unchanged()
+    {
+        var media = await AddMediaAsync("update-idempotent");
+
+        await Media.UpdateAsync(new Media
+        {
+            MediaId = media.MediaId,
+            Title = Marker + "update-idempotent",
+            MediaType = "MOVIE"
+        });
+
+        Assert.Equal(Marker + "update-idempotent", (await Media.GetByIdAsync(media.MediaId))!.Title);
+    }
+
+    [IntegrationFact]
+    public async Task Updating_an_unknown_media_id_reports_no_rows_changed()
+    {
+        var updated = await Media.UpdateAsync(new Media
+        {
+            MediaId = -1,
+            Title = Marker + "update-missing",
+            MediaType = "MOVIE"
+        });
+
+        Assert.False(updated);
+    }
 }
