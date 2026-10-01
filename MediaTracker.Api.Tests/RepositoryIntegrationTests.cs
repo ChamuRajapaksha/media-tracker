@@ -687,4 +687,168 @@ public class RepositoryIntegrationTests : IClassFixture<MediaApiFactory>, IAsync
         Assert.Equal(3, await Episodes.CountBySeasonIdAsync(season.SeasonId));
         Assert.Equal(1, await Episodes.CountWatchedBySeasonIdAsync(season.SeasonId));
     }
+
+    [IntegrationFact]
+    public async Task Upserting_a_new_season_inserts_it_and_returns_the_id()
+    {
+        var media = await AddMediaAsync("season-upsert-insert", "SHOW");
+
+        var seasonId = await Seasons.UpsertAsync(new Season { MediaId = media.MediaId, SeasonNumber = 3, Title = Marker + "season-three" });
+
+        Assert.True(seasonId > 0);
+        var season = await Seasons.GetByIdAsync(seasonId);
+        Assert.NotNull(season);
+        Assert.Equal(media.MediaId, season.MediaId);
+        Assert.Equal(3, season.SeasonNumber);
+        Assert.Equal(Marker + "season-three", season.Title);
+    }
+
+    [IntegrationFact]
+    public async Task Upserting_the_same_season_twice_updates_the_title_instead_of_failing()
+    {
+        // A plain INSERT here would raise ORA-00001 against uq_season, which is the whole
+        // reason UpsertAsync exists: re-importing a show has to be safe.
+        var media = await AddMediaAsync("season-upsert-update", "SHOW");
+
+        var first = await Seasons.UpsertAsync(new Season { MediaId = media.MediaId, SeasonNumber = 1, Title = Marker + "before" });
+        var second = await Seasons.UpsertAsync(new Season { MediaId = media.MediaId, SeasonNumber = 1, Title = Marker + "after" });
+
+        Assert.Equal(first, second);
+        var season = await Seasons.GetByIdAsync(second);
+        Assert.NotNull(season);
+        Assert.Equal(Marker + "after", season.Title);
+        Assert.Single(await Seasons.GetByMediaIdAsync(media.MediaId));
+    }
+
+    [IntegrationFact]
+    public async Task Upserting_seasons_for_different_media_keeps_them_apart()
+    {
+        var first = await AddMediaAsync("season-upsert-scope-a", "SHOW");
+        var second = await AddMediaAsync("season-upsert-scope-b", "SHOW");
+
+        var seasonOne = await Seasons.UpsertAsync(new Season { MediaId = first.MediaId, SeasonNumber = 1, Title = Marker + "a" });
+        var seasonTwo = await Seasons.UpsertAsync(new Season { MediaId = second.MediaId, SeasonNumber = 1, Title = Marker + "b" });
+
+        Assert.NotEqual(seasonOne, seasonTwo);
+        Assert.Equal(first.MediaId, (await Seasons.GetByIdAsync(seasonOne))!.MediaId);
+        Assert.Equal(second.MediaId, (await Seasons.GetByIdAsync(seasonTwo))!.MediaId);
+    }
+
+    [IntegrationFact]
+    public async Task Listing_seasons_returns_them_in_number_order()
+    {
+        var media = await AddMediaAsync("season-order", "SHOW");
+        await AddSeasonAsync(media.MediaId, 2, Marker + "season-two");
+        await AddSeasonAsync(media.MediaId, 1, Marker + "season-one");
+        await AddSeasonAsync(media.MediaId, 3, Marker + "season-three");
+
+        var seasons = (await Seasons.GetByMediaIdAsync(media.MediaId)).ToList();
+
+        Assert.Equal(new[] { 1, 2, 3 }, seasons.Select(season => season.SeasonNumber));
+    }
+
+    [IntegrationFact]
+    public async Task Upserting_a_new_episode_inserts_it_and_returns_the_id()
+    {
+        var media = await AddMediaAsync("episode-upsert-insert", "SHOW");
+        var season = await AddSeasonAsync(media.MediaId, 1);
+        var airDate = new DateTime(2026, 2, 14);
+
+        var episodeId = await Episodes.UpsertAsync(new Episode
+        {
+            SeasonId = season.SeasonId,
+            EpisodeNumber = 1,
+            Title = Marker + "episode-one",
+            AirDate = airDate
+        });
+
+        Assert.True(episodeId > 0);
+        var episode = await Episodes.GetByIdAsync(episodeId);
+        Assert.NotNull(episode);
+        Assert.Equal(season.SeasonId, episode.SeasonId);
+        Assert.Equal(1, episode.EpisodeNumber);
+        Assert.Equal(Marker + "episode-one", episode.Title);
+        Assert.Equal(airDate.Date, episode.AirDate!.Value.Date);
+    }
+
+    [IntegrationFact]
+    public async Task Upserting_the_same_episode_twice_updates_it_instead_of_failing()
+    {
+        var media = await AddMediaAsync("episode-upsert-update", "SHOW");
+        var season = await AddSeasonAsync(media.MediaId, 1);
+
+        var first = await Episodes.UpsertAsync(new Episode { SeasonId = season.SeasonId, EpisodeNumber = 1, Title = Marker + "before" });
+        var second = await Episodes.UpsertAsync(new Episode { SeasonId = season.SeasonId, EpisodeNumber = 1, Title = Marker + "after" });
+
+        Assert.Equal(first, second);
+        var episode = await Episodes.GetByIdAsync(second);
+        Assert.NotNull(episode);
+        Assert.Equal(Marker + "after", episode.Title);
+        Assert.Single(await Episodes.GetBySeasonIdAsync(season.SeasonId));
+    }
+
+    [IntegrationFact]
+    public async Task Upserting_the_same_episode_twice_refreshes_the_air_date()
+    {
+        var media = await AddMediaAsync("episode-upsert-air-date", "SHOW");
+        var season = await AddSeasonAsync(media.MediaId, 1);
+
+        await Episodes.UpsertAsync(new Episode { SeasonId = season.SeasonId, EpisodeNumber = 1, AirDate = new DateTime(2026, 1, 1) });
+        var second = await Episodes.UpsertAsync(new Episode { SeasonId = season.SeasonId, EpisodeNumber = 1, AirDate = new DateTime(2026, 3, 3) });
+
+        var episode = await Episodes.GetByIdAsync(second);
+
+        Assert.NotNull(episode);
+        Assert.Equal(new DateTime(2026, 3, 3), episode.AirDate!.Value.Date);
+    }
+
+    [IntegrationFact]
+    public async Task Upserting_episodes_for_different_seasons_keeps_them_apart()
+    {
+        var media = await AddMediaAsync("episode-upsert-scope", "SHOW");
+        var seasonOne = await AddSeasonAsync(media.MediaId, 1);
+        var seasonTwo = await AddSeasonAsync(media.MediaId, 2);
+
+        var episodeOne = await Episodes.UpsertAsync(new Episode { SeasonId = seasonOne.SeasonId, EpisodeNumber = 1 });
+        var episodeTwo = await Episodes.UpsertAsync(new Episode { SeasonId = seasonTwo.SeasonId, EpisodeNumber = 1 });
+
+        Assert.NotEqual(episodeOne, episodeTwo);
+        Assert.Equal(seasonOne.SeasonId, (await Episodes.GetByIdAsync(episodeOne))!.SeasonId);
+        Assert.Equal(seasonTwo.SeasonId, (await Episodes.GetByIdAsync(episodeTwo))!.SeasonId);
+    }
+
+    [IntegrationFact]
+    public async Task Listing_episodes_returns_them_in_number_order()
+    {
+        var media = await AddMediaAsync("episode-order", "SHOW");
+        var season = await AddSeasonAsync(media.MediaId, 1);
+        await AddEpisodeAsync(season.SeasonId, 3);
+        await AddEpisodeAsync(season.SeasonId, 1);
+        await AddEpisodeAsync(season.SeasonId, 2);
+
+        var episodes = (await Episodes.GetBySeasonIdAsync(season.SeasonId)).ToList();
+
+        Assert.Equal(new[] { 1, 2, 3 }, episodes.Select(episode => episode.EpisodeNumber));
+    }
+
+    [IntegrationFact]
+    public async Task Reading_a_season_or_episode_that_does_not_exist_returns_null()
+    {
+        Assert.Null(await Seasons.GetByIdAsync(-1));
+        Assert.Null(await Episodes.GetByIdAsync(-1));
+    }
+
+    [IntegrationFact]
+    public async Task Deleting_a_season_or_episode_twice_reports_no_rows_the_second_time()
+    {
+        var media = await AddMediaAsync("delete-child-twice", "SHOW");
+        var season = await AddSeasonAsync(media.MediaId, 1);
+        var episode = await AddEpisodeAsync(season.SeasonId, 1);
+
+        Assert.True(await Episodes.DeleteAsync(episode.EpisodeId));
+        Assert.False(await Episodes.DeleteAsync(episode.EpisodeId));
+
+        Assert.True(await Seasons.DeleteAsync(season.SeasonId));
+        Assert.False(await Seasons.DeleteAsync(season.SeasonId));
+    }
 }
