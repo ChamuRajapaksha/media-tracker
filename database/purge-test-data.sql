@@ -29,6 +29,18 @@ DELETE FROM media
 WHERE title IN ('Progress Test Show', 'Cascade Ep', 'Cascade Season')
    OR tmdb_id = 95396;   -- the Severance row, matched on tmdb_id so an edited title still catches it
 
+-- Rows left behind by an integration test run that crashed before its teardown ran.
+-- Every row the test suite inserts is tagged ITEST-<runid>-, so this is a prefix match
+-- rather than a list of ids. Normally this matches nothing: MediaTracker.Api.Tests
+-- deletes its own rows in IAsyncLifetime.DisposeAsync.
+DELETE FROM media
+WHERE title LIKE 'ITEST-%';
+
+-- Genres are referenced, not owned, so media_genres cascades away but the genre row
+-- itself survives and needs deleting separately. See the OPTIONAL block below.
+DELETE FROM genres
+WHERE name LIKE 'ITEST-%';
+
 -- ---------------------------------------------------------------
 -- STEP 3 - commit. SQL Developer will not do this for you.
 -- ---------------------------------------------------------------
