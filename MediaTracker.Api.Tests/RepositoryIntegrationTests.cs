@@ -851,4 +851,122 @@ public class RepositoryIntegrationTests : IClassFixture<MediaApiFactory>, IAsync
         Assert.True(await Seasons.DeleteAsync(season.SeasonId));
         Assert.False(await Seasons.DeleteAsync(season.SeasonId));
     }
+
+    [IntegrationFact]
+    public async Task Inserting_media_with_an_unknown_media_type_is_rejected()
+    {
+        var media = new Media { Title = Marker + "bad-media-type", MediaType = "BOOK" };
+
+        var exception = await Assert.ThrowsAnyAsync<OracleException>(
+            async () => await Media.AddAsync(media));
+
+        // ORA-02290 is the check constraint violation, which is schema.sql:17 doing its job.
+        Assert.Equal(2290, exception.Number);
+    }
+
+    [IntegrationFact]
+    public async Task Inserting_media_without_a_title_is_rejected()
+    {
+        var media = new Media { Title = string.Empty, MediaType = "MOVIE" };
+
+        await Assert.ThrowsAnyAsync<OracleException>(async () => await Media.AddAsync(media));
+    }
+
+    [IntegrationFact]
+    public async Task Updating_media_to_an_unknown_media_type_is_rejected()
+    {
+        var media = await AddMediaAsync("update-to-bad-type", "MOVIE");
+
+        await Assert.ThrowsAnyAsync<OracleException>(
+            async () => await Media.UpdateAsync(new Media { MediaId = media.MediaId, Title = media.Title, MediaType = "BOOK" }));
+    }
+
+    [IntegrationFact]
+    public async Task Setting_an_unknown_watch_status_is_rejected()
+    {
+        var media = await AddMediaAsync("bad-watch-status");
+
+        await Assert.ThrowsAnyAsync<OracleException>(
+            async () => await WatchStatus.SetStatusAsync(media.MediaId, "MAYBE"));
+
+        Assert.Null(await WatchStatus.GetByMediaIdAsync(media.MediaId));
+    }
+
+    [IntegrationFact]
+    public async Task Setting_a_rating_outside_the_allowed_range_is_rejected()
+    {
+        var media = await AddMediaAsync("bad-rating-score");
+
+        await Assert.ThrowsAnyAsync<OracleException>(
+            async () => await Ratings.SetRatingAsync(media.MediaId, 11m, Marker + "too-high"));
+
+        Assert.Null(await Ratings.GetByMediaIdAsync(media.MediaId));
+    }
+
+    [IntegrationFact]
+    public async Task Adding_a_duplicate_genre_name_is_rejected()
+    {
+        var genre = await AddGenreAsync("duplicate");
+        var duplicate = new Genre { Name = genre.Name };
+
+        await Assert.ThrowsAnyAsync<OracleException>(async () => await Genres.AddAsync(duplicate));
+    }
+
+    [IntegrationFact]
+    public async Task Adding_the_same_season_number_twice_for_one_media_is_rejected()
+    {
+        // Proves uq_season exists, which is what makes SeasonRepository.UpsertAsync necessary.
+        var media = await AddMediaAsync("duplicate-season-number", "SHOW");
+        await AddSeasonAsync(media.MediaId, 1);
+
+        await Assert.ThrowsAnyAsync<OracleException>(async () => await AddSeasonAsync(media.MediaId, 1));
+    }
+
+    [IntegrationFact]
+    public async Task Adding_the_same_episode_number_twice_for_one_season_is_rejected()
+    {
+        var media = await AddMediaAsync("duplicate-episode-number", "SHOW");
+        var season = await AddSeasonAsync(media.MediaId, 1);
+        await AddEpisodeAsync(season.SeasonId, 1);
+
+        await Assert.ThrowsAnyAsync<OracleException>(async () => await AddEpisodeAsync(season.SeasonId, 1));
+    }
+
+    [IntegrationFact]
+    public async Task Linking_a_genre_to_media_that_does_not_exist_is_rejected()
+    {
+        var genre = await AddGenreAsync("orphan-link");
+
+        await Assert.ThrowsAnyAsync<OracleException>(async () => await Media.AddGenreAsync(-1, genre.GenreId));
+    }
+
+    [IntegrationFact]
+    public async Task Linking_the_same_genre_to_media_twice_is_rejected()
+    {
+        var media = await AddMediaAsync("duplicate-genre-link", "MOVIE");
+        var genre = await AddGenreAsync("duplicate-link");
+        await Media.AddGenreAsync(media.MediaId, genre.GenreId);
+
+        await Assert.ThrowsAnyAsync<OracleException>(async () => await Media.AddGenreAsync(media.MediaId, genre.GenreId));
+    }
+
+    [IntegrationFact]
+    public async Task Marking_an_episode_watched_that_does_not_exist_is_rejected()
+    {
+        await Assert.ThrowsAnyAsync<OracleException>(async () => await Progress.MarkWatchedAsync(-1));
+    }
+
+    [IntegrationFact]
+    public async Task A_rejected_write_does_not_stop_the_next_one()
+    {
+        // Oracle keeps a failed statement from poisoning later ones here only because each
+        // repository opens its own connection. Worth pinning: a shared connection would
+        // leave the next statement running against an aborted transaction.
+        var media = await AddMediaAsync("recovery-after-rejection");
+
+        await Assert.ThrowsAnyAsync<OracleException>(async () => await Media.AddAsync(new Media { Title = Marker + "rejected", MediaType = "BOOK" }));
+
+        Assert.True(media.MediaId > 0);
+        Assert.NotNull(await Media.GetByIdAsync(media.MediaId));
+    }
 }
