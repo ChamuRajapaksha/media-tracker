@@ -78,6 +78,59 @@ public class RepositoryIntegrationTests : IClassFixture<MediaApiFactory>, IAsync
         return Track(media);
     }
 
+    private async Task<Genre> AddGenreAsync(string name)
+    {
+        var genre = new Genre { Name = Marker + name };
+        genre.GenreId = await Genres.AddAsync(genre);
+        _genreIds.Add(genre.GenreId);
+        return genre;
+    }
+
+    private async Task<Season> AddSeasonAsync(int mediaId, int seasonNumber, string? title = null)
+    {
+        var season = new Season { MediaId = mediaId, SeasonNumber = seasonNumber, Title = title };
+        season.SeasonId = await Seasons.AddAsync(season);
+        return season;
+    }
+
+    private async Task<Episode> AddEpisodeAsync(int seasonId, int episodeNumber, string? title = null)
+    {
+        var episode = new Episode { SeasonId = seasonId, EpisodeNumber = episodeNumber, Title = title };
+        episode.EpisodeId = await Episodes.AddAsync(episode);
+        return episode;
+    }
+
+    // Same orphan query as STEP 5 of database/purge-test-data.sql. Running it here rather
+    // than trusting ON DELETE CASCADE means a dropped cascade constraint fails the suite.
+    private async Task<Dictionary<string, int>> ReadOrphanCountsAsync()
+    {
+        const string sql = @"SELECT 'seasons' AS TableName, COUNT(*) AS Orphans
+                              FROM seasons s WHERE NOT EXISTS (SELECT 1 FROM media m WHERE m.media_id = s.media_id)
+                             UNION ALL
+                            SELECT 'episodes', COUNT(*)
+                              FROM episodes e WHERE NOT EXISTS (
+                                  SELECT 1 FROM seasons s JOIN media m ON m.media_id = s.media_id
+                                   WHERE s.season_id = e.season_id)
+                             UNION ALL
+                            SELECT 'episode_progress', COUNT(*)
+                              FROM episode_progress ep WHERE NOT EXISTS (
+                                  SELECT 1 FROM episodes e WHERE e.episode_id = ep.episode_id)
+                             UNION ALL
+                            SELECT 'media_genres', COUNT(*)
+                              FROM media_genres mg WHERE NOT EXISTS (SELECT 1 FROM media m WHERE m.media_id = mg.media_id)
+                             UNION ALL
+                            SELECT 'watch_status', COUNT(*)
+                              FROM watch_status ws WHERE NOT EXISTS (SELECT 1 FROM media m WHERE m.media_id = ws.media_id)
+                             UNION ALL
+                            SELECT 'ratings', COUNT(*)
+                              FROM ratings r WHERE NOT EXISTS (SELECT 1 FROM media m WHERE m.media_id = r.media_id)";
+
+        using var connection = OpenConnection();
+        var rows = await connection.QueryAsync<(string TableName, int Orphans)>(sql);
+
+        return rows.ToDictionary(row => row.TableName, row => row.Orphans);
+    }
+
     [IntegrationFact]
     public async Task The_test_host_serves_media_from_the_live_database()
     {
@@ -319,5 +372,83 @@ public class RepositoryIntegrationTests : IClassFixture<MediaApiFactory>, IAsync
 
         Assert.Null(await Media.GetByIdAsync(deleted.MediaId));
         Assert.NotNull(await Media.GetByIdAsync(kept.MediaId));
+    }
+
+    [IntegrationFact]
+    public async Task Deleting_media_cascades_to_every_child_table()
+    {
+        // Builds one row in each child table so the cascade has something to remove.
+        var media = await AddMediaAsync("cascade-all", "SHOW");
+        var genre = await AddGenreAsync("cascade-genre");
+        await Media.AddGenreAsync(media.MediaId, genre.GenreId);
+        var season = await AddSeasonAsync(media.MediaId, 1, Marker + "cascade-season");
+        var episode = await AddEpisodeAsync(season.SeasonId, 1, Marker + "cascade-episode");
+        await Progress.MarkWatchedAsync(episode.EpisodeId);
+        await WatchStatus.SetStatusAsync(media.MediaId, "WATCHING");
+        await Ratings.SetRatingAsync(media.MediaId, 8.5m, Marker + "cascade-review");
+
+        // Sanity check: the child rows are really there before the delete.
+        Assert.Single(await Seasons.GetByMediaIdAsync(media.MediaId));
+        Assert.Single(await Episodes.GetBySeasonIdAsync(season.SeasonId));
+        Assert.NotNull(await Progress.GetByEpisodeIdAsync(episode.EpisodeId));
+        Assert.Single(await Media.GetGenresForMediaAsync(media.MediaId));
+        Assert.NotNull(await WatchStatus.GetByMediaIdAsync(media.MediaId));
+        Assert.NotNull(await Ratings.GetByMediaIdAsync(media.MediaId));
+
+        Assert.True(await Media.DeleteAsync(media.MediaId));
+
+        var orphans = await ReadOrphanCountsAsync();
+
+        Assert.All(orphans, entry => Assert.True(entry.Value == 0, $"{entry.Key} has {entry.Value} orphans"));
+        // The genre row itself is shared vocabulary, not a child, so it survives on purpose.
+        Assert.NotNull(await Genres.GetByIdAsync(genre.GenreId));
+    }
+
+    [IntegrationFact]
+    public async Task Deleting_a_season_cascades_to_its_episodes_and_their_progress()
+    {
+        var media = await AddMediaAsync("cascade-season-delete", "SHOW");
+        var season = await AddSeasonAsync(media.MediaId, 1);
+        var watched = await AddEpisodeAsync(season.SeasonId, 1);
+        var unwatched = await AddEpisodeAsync(season.SeasonId, 2);
+        await Progress.MarkWatchedAsync(watched.EpisodeId);
+
+        Assert.True(await Seasons.DeleteAsync(season.SeasonId));
+
+        Assert.Null(await Episodes.GetByIdAsync(watched.EpisodeId));
+        Assert.Null(await Episodes.GetByIdAsync(unwatched.EpisodeId));
+        Assert.Null(await Progress.GetByEpisodeIdAsync(watched.EpisodeId));
+        Assert.Empty(await Episodes.GetBySeasonIdAsync(season.SeasonId));
+
+        var orphans = await ReadOrphanCountsAsync();
+
+        Assert.All(orphans, entry => Assert.True(entry.Value == 0, $"{entry.Key} has {entry.Value} orphans"));
+    }
+
+    [IntegrationFact]
+    public async Task Deleting_an_episode_cascades_to_its_progress_row()
+    {
+        var media = await AddMediaAsync("cascade-episode-delete", "SHOW");
+        var season = await AddSeasonAsync(media.MediaId, 1);
+        var episode = await AddEpisodeAsync(season.SeasonId, 1);
+        await Progress.MarkWatchedAsync(episode.EpisodeId);
+
+        Assert.True(await Episodes.DeleteAsync(episode.EpisodeId));
+
+        Assert.Null(await Progress.GetByEpisodeIdAsync(episode.EpisodeId));
+        Assert.Empty(await Progress.GetBySeasonIdAsync(season.SeasonId));
+    }
+
+    [IntegrationFact]
+    public async Task Deleting_a_genre_removes_the_media_genres_links_but_not_the_media()
+    {
+        var media = await AddMediaAsync("cascade-genre-link", "MOVIE");
+        var genre = await AddGenreAsync("cascade-genre-link");
+        await Media.AddGenreAsync(media.MediaId, genre.GenreId);
+
+        Assert.True(await Genres.DeleteAsync(genre.GenreId));
+
+        Assert.Empty(await Media.GetGenresForMediaAsync(media.MediaId));
+        Assert.NotNull(await Media.GetByIdAsync(media.MediaId));
     }
 }
