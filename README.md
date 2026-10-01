@@ -22,6 +22,7 @@ Personal project, built deliberately as a portfolio piece to demonstrate C#/.NET
 - [API surface](#api-surface)
 - [Oracle specifics](#oracle-specifics)
 - [Getting started](#getting-started)
+- [Testing](#testing)
 - [What you can learn from this](#what-you-can-learn-from-this)
 - [Project layout](#project-layout)
 - [Roadmap](#roadmap)
@@ -42,6 +43,7 @@ Track the media you want to watch, are watching, have finished, or have dropped.
 | Ratings | Score and review per media item, same upsert semantics |
 | TMDB integration | Import a real movie or show straight from TMDB by ID, including its seasons and episodes |
 | API docs | Swagger UI and an OpenAPI document, development only |
+| Testing | 165 xUnit tests: endpoint logic and TMDB with no database, repository SQL against the real Oracle container |
 | Secrets handling | Connection string and API key kept out of source control entirely |
 
 ## Tech stack
@@ -54,6 +56,7 @@ Track the media you want to watch, are watching, have finished, or have dropped.
 | Driver | Oracle.ManagedDataAccess.Core (ODP.NET) | Microsoft-managed Oracle driver, no Instant Client install |
 | API docs | Swashbuckle.AspNetCore | Added by hand; the .NET 10 template ships no Swagger UI |
 | External API | TMDB v3 | Movie and show metadata source |
+| Testing | xUnit 2.9 + NSubstitute | xUnit for the runner, NSubstitute because Moq's licensing changed; `WebApplicationFactory` for the host |
 | Secrets | dotnet user-secrets | Repo is public, so nothing sensitive is committed |
 
 ## Architecture
@@ -155,8 +158,8 @@ The database was picked precisely because it is the awkward one, so the Oracle-f
 | Getting the new primary key | `RETURNING <col> INTO :NewId` plus a Dapper `DynamicParameters` entry with `ParameterDirection.Output` |
 | Upserts | `MERGE INTO ... USING (SELECT :p AS col FROM dual) ... WHEN MATCHED / WHEN NOT MATCHED` for `watch_status`, `ratings`, `seasons` and `episodes` |
 | Column mapping | Every `SELECT` aliases snake_case columns to PascalCase (`media_id AS MediaId`) because Oracle returns uppercase column names |
-| Deletes | Rely on `ON DELETE CASCADE` rather than manual child cleanup, verified level by level against the running database |
-| Timestamps | `SYSDATE` |
+| Deletes | Rely on `ON DELETE CASCADE` rather than manual child cleanup, asserted level by level by the integration suite rather than assumed |
+| Timestamps | `SYSDATE`, so the column carries the database clock and not the app's |
 
 ## Getting started
 
@@ -188,8 +191,6 @@ dotnet user-secrets set "Tmdb:ApiKey" "<your-tmdb-v3-key>"
 
 **4. Run it**
 
-There is no solution file, so target the project explicitly:
-
 ```bash
 dotnet run --project MediaTracker.Api
 ```
@@ -202,11 +203,52 @@ Open `/swagger` and use **Execute** on any route. If you use an editor that unde
 
 The README uses diagrams rather than screenshots on purpose — they stay readable as the API changes and cannot go stale.
 
-> There is no test project yet. `dotnet build MediaTracker.Api` is the only automated check available.
-
 **6. Clean up after yourself**
 
 The `.http` samples and manual testing leave rows behind. [`database/purge-test-data.sql`](database/purge-test-data.sql) removes the smoke-test data while leaving anything you created deliberately. Run it with **Run Script**, and note it needs an explicit `COMMIT`.
+
+## Testing
+
+There is a real test project, [`MediaTracker.Api.Tests`](MediaTracker.Api.Tests), split by where the risk actually is rather than by what is convenient to mock.
+
+| Layer | Approach | Count |
+| --- | --- | --- |
+| Endpoint orchestration | Real routing and real endpoint delegates, every repository and the TMDB service swapped for `NSubstitute` substitutes. No database, no network. | 54 |
+| `TmdbService` | A stubbed `HttpMessageHandler` returns canned JSON, so URL building and deserialization are checked without touching TMDB or the network. | 27 |
+| Repositories | The real Oracle container. `:param` binding, `RETURNING ... INTO`, `MERGE`, `CHECK` constraints and `ON DELETE CASCADE` cannot be honestly verified any other way. | 61 |
+
+```bash
+dotnet test                    # 104 tests, integration ones reported as skipped
+$env:MEDIATRACKER_TEST_DB = "1"
+docker start media-tracker-db
+dotnet test                    # 165 tests, integration ones execute
+Remove-Item Env:\MEDIATRACKER_TEST_DB
+```
+
+**Integration tests are opt-in.** Set `MEDIATRACKER_TEST_DB=1` to run them. Without it they are reported as *skipped*, so a fresh clone shows a green suite on a machine that has never had Oracle. This is deliberate: the repository is public, and a red suite on first clone reads as broken rather than as "you need a database first".
+
+If you opt in but have no connection string, the tests fail loudly with the `dotnet user-secrets set` command rather than passing quietly. The test project shares the API project's `UserSecretsId`, so it reads the same secrets store — no second password to configure, and nothing sensitive in the repo.
+
+```mermaid
+flowchart LR
+    subgraph Unit["No database required"]
+        EL["EndpointLogicTests<br/>54 tests"] -->|"NSubstitute"| Fakes["I*Repository substitutes"]
+        TS["TmdbServiceTests<br/>27 tests"] -->|"stub handler"| FakeApi(["Canned TMDB JSON"])
+    end
+
+    subgraph Integration["MEDIATRACKER_TEST_DB=1"]
+        RI["RepositoryIntegrationTests<br/>61 tests"] -->|"real SQL"| Oracle[("Oracle container")]
+    end
+```
+
+A few decisions worth calling out:
+
+- **No connection factory, no production refactor.** Faking `IDbConnection` means faking `IDbCommand` and `IDataReader`, which is brittle and proves nothing about Oracle. The single production change the suite needed was `public partial class Program { }`.
+- **One `EndpointApiFactory` per test, not per class.** NSubstitute keeps the `Returns` setup alive after a test ends, so a shared instance lets a later test pass on a stub an earlier one installed.
+- **`SYSDATE` is the database clock.** `created_at` and `updated_at` are stamped by Oracle, not by the app, so those assertions bracket against `SELECT SYSDATE FROM dual` rather than `DateTime.UtcNow`. Comparing against the local clock fails on any machine whose timezone differs from the container's.
+- **Isolation by marker.** Every integration row is tagged `ITEST-<runid>-` in its title, and teardown deletes by tracked id, with `ON DELETE CASCADE` taking the children. If a run is killed before teardown, STEP 2 of [`database/purge-test-data.sql`](database/purge-test-data.sql) cleans up by that marker prefix.
+
+`WebApplication.CreateBuilder` only loads user-secrets when the environment is Development, so a test host with `Environment = "Testing"` would otherwise resolve a null connection string and throw in every repository constructor. `MediaApiFactory` adds the secrets source explicitly to avoid that.
 
 ## What you can learn from this
 
@@ -218,6 +260,7 @@ The `.http` samples and manual testing leave rows behind. [`database/purge-test-
 - **Third-party API integration** — typed `HttpClient` via `IHttpClientFactory`, named clients, `System.Text.Json` deserialization, and translating between two different domain vocabularies (`movie`/`tv` versus `MOVIE`/`SHOW`).
 - **Debugging a real network bug** — TMDB calls hung for 100 seconds on the author's machine because `HttpClient` resolved DNS over IPv6 first. The fix in `Program.cs` overrides `ConfigurePrimaryHttpMessageHandler` to force IPv4 sockets, which is a good look at how a seemingly unrelated infrastructure quirk presents as an application-level timeout.
 - **Secret management** — keeping connection strings and API keys in user-secrets so a public repository stays safe.
+- **Testing without a production refactor** — deciding that the endpoint layer is worth faking but the SQL is only worth trusting, and that "skip unless opted in" is the right contract for a public repo whose tests need a database.
 
 ## Project layout
 
@@ -225,7 +268,7 @@ The `.http` samples and manual testing leave rows behind. [`database/purge-test-
 media-tracker/
 ├── database/
 │   ├── schema.sql              all 8 tables, run once as media_app
-│   └── purge-test-data.sql     removes smoke-test data, leaves real data alone
+│   └── purge-test-data.sql     removes smoke-test and ITEST-marked rows
 ├── MediaTracker.Api/
 │   ├── Models/                 POCOs mirroring the tables (+ Models/Tmdb/)
 │   ├── Repositories/           I<Entity>Repository.cs + <Entity>Repository.cs
@@ -234,6 +277,15 @@ media-tracker/
 │   ├── Program.cs              DI registration and endpoint mapping
 │   ├── MediaTracker.Api.http   runnable request samples
 │   └── Properties/launchSettings.json
+├── MediaTracker.Api.Tests/
+│   ├── EndpointLogicTests.cs       endpoint orchestration, repositories faked
+│   ├── TmdbServiceTests.cs         TmdbService against a stubbed HttpMessageHandler
+│   ├── RepositoryIntegrationTests.cs  real Oracle, marker-isolated
+│   ├── IntegrationFactAttribute.cs opt-in gate for anything needing the database
+│   ├── MediaApiFactory.cs          WebApplicationFactory host
+│   ├── TestConfiguration.cs        reads the shared user-secrets store
+│   └── FakeTmdbHandler.cs          canned TMDB responses
+├── MediaTracker.slnx
 └── README.md
 ```
 
@@ -241,7 +293,6 @@ media-tracker/
 
 Short version of what's next, roughly in order:
 
-- A test project — there is none yet, and repository code opens `OracleConnection` directly by design, so it needs an approach worked out for Oracle rather than an in-memory substitute
 - `docker-compose.yml` bringing up the API and Oracle together in one command
 - Season and episode `PUT` endpoints, to match what media items already have
 - Downgrading a show from `COMPLETED` back to `WATCHING` when an episode is unmarked
