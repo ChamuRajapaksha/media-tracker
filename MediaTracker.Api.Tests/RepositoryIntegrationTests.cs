@@ -100,6 +100,14 @@ public class RepositoryIntegrationTests : IClassFixture<MediaApiFactory>, IAsync
         return episode;
     }
 
+    // Most progress tests only care about a single watched episode, so building the
+    // show -> season -> episode chain inline in each of them reads worse than this does.
+    private async Task<Episode> AddFirstEpisodeAsync(int mediaId)
+    {
+        var season = await AddSeasonAsync(mediaId, 1);
+        return await AddEpisodeAsync(season.SeasonId, 1);
+    }
+
     // Same orphan query as STEP 5 of database/purge-test-data.sql. Running it here rather
     // than trusting ON DELETE CASCADE means a dropped cascade constraint fails the suite.
     private async Task<Dictionary<string, int>> ReadOrphanCountsAsync()
@@ -547,5 +555,136 @@ public class RepositoryIntegrationTests : IClassFixture<MediaApiFactory>, IAsync
 
         Assert.Equal("WATCHING", (await WatchStatus.GetByMediaIdAsync(first.MediaId))!.Status);
         Assert.Equal("COMPLETED", (await WatchStatus.GetByMediaIdAsync(second.MediaId))!.Status);
+    }
+
+    [IntegrationFact]
+    public async Task Marking_an_episode_watched_inserts_the_missing_row()
+    {
+        var media = await AddMediaAsync("progress-insert", "SHOW");
+        var episode = await AddFirstEpisodeAsync(media.MediaId);
+
+        await Progress.MarkWatchedAsync(episode.EpisodeId);
+
+        var progress = await Progress.GetByEpisodeIdAsync(episode.EpisodeId);
+
+        Assert.NotNull(progress);
+        Assert.Equal(episode.EpisodeId, progress.EpisodeId);
+    }
+
+    [IntegrationFact]
+    public async Task Marking_a_watched_episode_watched_again_leaves_exactly_one_row()
+    {
+        var media = await AddMediaAsync("progress-idempotent", "SHOW");
+        var episode = await AddFirstEpisodeAsync(media.MediaId);
+
+        await Progress.MarkWatchedAsync(episode.EpisodeId);
+        await Progress.MarkWatchedAsync(episode.EpisodeId);
+
+        using var connection = OpenConnection();
+        var rows = await connection.QuerySingleAsync<int>(
+            "SELECT COUNT(*) FROM episode_progress WHERE episode_id = :Id",
+            new { Id = episode.EpisodeId });
+
+        Assert.Equal(1, rows);
+    }
+
+    [IntegrationFact]
+    public async Task Marking_a_watched_episode_watched_again_does_not_refresh_watched_at()
+    {
+        // The MERGE deliberately has no WHEN MATCHED clause, so a re-watch keeps the
+        // original timestamp rather than pretending the episode was watched again.
+        var media = await AddMediaAsync("progress-no-refresh", "SHOW");
+        var episode = await AddFirstEpisodeAsync(media.MediaId);
+
+        await Progress.MarkWatchedAsync(episode.EpisodeId);
+        var first = (await Progress.GetByEpisodeIdAsync(episode.EpisodeId))!.WatchedAt;
+
+        await Task.Delay(TimeSpan.FromSeconds(1.1));
+        await Progress.MarkWatchedAsync(episode.EpisodeId);
+        var second = (await Progress.GetByEpisodeIdAsync(episode.EpisodeId))!.WatchedAt;
+
+        Assert.Equal(first, second);
+    }
+
+    [IntegrationFact]
+    public async Task Reading_season_progress_returns_only_that_seasons_episodes()
+    {
+        var media = await AddMediaAsync("progress-by-season", "SHOW");
+        var seasonOne = await AddSeasonAsync(media.MediaId, 1);
+        var seasonTwo = await AddSeasonAsync(media.MediaId, 2);
+        var oneOne = await AddEpisodeAsync(seasonOne.SeasonId, 1);
+        var oneTwo = await AddEpisodeAsync(seasonOne.SeasonId, 2);
+        var twoOne = await AddEpisodeAsync(seasonTwo.SeasonId, 1);
+        await Progress.MarkWatchedAsync(oneOne.EpisodeId);
+        await Progress.MarkWatchedAsync(twoOne.EpisodeId);
+
+        var seasonOneProgress = (await Progress.GetBySeasonIdAsync(seasonOne.SeasonId)).ToList();
+        var seasonTwoProgress = (await Progress.GetBySeasonIdAsync(seasonTwo.SeasonId)).ToList();
+
+        Assert.Equal(new[] { oneOne.EpisodeId }, seasonOneProgress.Select(row => row.EpisodeId));
+        Assert.Equal(new[] { twoOne.EpisodeId }, seasonTwoProgress.Select(row => row.EpisodeId));
+        Assert.DoesNotContain(oneTwo.EpisodeId, seasonOneProgress.Select(row => row.EpisodeId));
+    }
+
+    [IntegrationFact]
+    public async Task Reading_season_progress_returns_the_episodes_in_number_order()
+    {
+        var media = await AddMediaAsync("progress-order", "SHOW");
+        var season = await AddSeasonAsync(media.MediaId, 1);
+        var three = await AddEpisodeAsync(season.SeasonId, 3);
+        var one = await AddEpisodeAsync(season.SeasonId, 1);
+        var two = await AddEpisodeAsync(season.SeasonId, 2);
+        await Progress.MarkWatchedAsync(three.EpisodeId);
+        await Progress.MarkWatchedAsync(one.EpisodeId);
+        await Progress.MarkWatchedAsync(two.EpisodeId);
+
+        var progress = (await Progress.GetBySeasonIdAsync(season.SeasonId)).ToList();
+
+        Assert.Equal(new[] { one.EpisodeId, two.EpisodeId, three.EpisodeId }, progress.Select(row => row.EpisodeId));
+    }
+
+    [IntegrationFact]
+    public async Task Reading_progress_for_an_unwatched_episode_returns_null()
+    {
+        var media = await AddMediaAsync("progress-missing", "SHOW");
+        var episode = await AddFirstEpisodeAsync(media.MediaId);
+
+        Assert.Null(await Progress.GetByEpisodeIdAsync(episode.EpisodeId));
+    }
+
+    [IntegrationFact]
+    public async Task Unmarking_a_watched_episode_removes_the_row()
+    {
+        var media = await AddMediaAsync("progress-unmark", "SHOW");
+        var episode = await AddFirstEpisodeAsync(media.MediaId);
+        await Progress.MarkWatchedAsync(episode.EpisodeId);
+
+        Assert.True(await Progress.MarkUnwatchedAsync(episode.EpisodeId));
+        Assert.Null(await Progress.GetByEpisodeIdAsync(episode.EpisodeId));
+    }
+
+    [IntegrationFact]
+    public async Task Unmarking_an_unwatched_episode_reports_no_rows_changed()
+    {
+        var media = await AddMediaAsync("progress-unmark-twice", "SHOW");
+        var episode = await AddFirstEpisodeAsync(media.MediaId);
+        await Progress.MarkWatchedAsync(episode.EpisodeId);
+        await Progress.MarkUnwatchedAsync(episode.EpisodeId);
+
+        Assert.False(await Progress.MarkUnwatchedAsync(episode.EpisodeId));
+    }
+
+    [IntegrationFact]
+    public async Task Counting_watched_episodes_matches_what_was_marked()
+    {
+        var media = await AddMediaAsync("progress-count", "SHOW");
+        var season = await AddSeasonAsync(media.MediaId, 1);
+        var one = await AddEpisodeAsync(season.SeasonId, 1);
+        await AddEpisodeAsync(season.SeasonId, 2);
+        await AddEpisodeAsync(season.SeasonId, 3);
+        await Progress.MarkWatchedAsync(one.EpisodeId);
+
+        Assert.Equal(3, await Episodes.CountBySeasonIdAsync(season.SeasonId));
+        Assert.Equal(1, await Episodes.CountWatchedBySeasonIdAsync(season.SeasonId));
     }
 }
