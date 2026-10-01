@@ -133,4 +133,80 @@ public class RepositoryIntegrationTests : IClassFixture<MediaApiFactory>, IAsync
 
         Assert.Equal(Marker + "insert-committed", title);
     }
+
+    [IntegrationFact]
+    public async Task Reading_media_back_maps_every_column()
+    {
+        var inserted = await Media.AddAsync(new Media
+        {
+            Title = Marker + "mapping",
+            MediaType = "SHOW",
+            ReleaseYear = 1999,
+            Overview = Marker + "overview",
+            PosterUrl = "https://example.invalid/poster.jpg",
+            TmdbId = 4242
+        });
+        Track(new Media { MediaId = inserted });
+
+        var media = await Media.GetByIdAsync(inserted);
+
+        Assert.NotNull(media);
+        Assert.Equal(inserted, media.MediaId);
+        Assert.Equal(Marker + "mapping", media.Title);
+        Assert.Equal("SHOW", media.MediaType);
+        Assert.Equal(1999, media.ReleaseYear);
+        Assert.Equal(Marker + "overview", media.Overview);
+        Assert.Equal("https://example.invalid/poster.jpg", media.PosterUrl);
+        Assert.Equal(4242, media.TmdbId);
+    }
+
+    [IntegrationFact]
+    public async Task Reading_media_back_maps_the_created_at_timestamp()
+    {
+        using var connection = OpenConnection();
+        var before = await connection.QuerySingleAsync<DateTime>("SELECT SYSDATE FROM dual");
+
+        var inserted = await Media.AddAsync(new Media { Title = Marker + "created-at", MediaType = "MOVIE" });
+        Track(new Media { MediaId = inserted });
+
+        var media = await Media.GetByIdAsync(inserted);
+        var after = await connection.QuerySingleAsync<DateTime>("SELECT SYSDATE FROM dual");
+
+        Assert.NotNull(media);
+        // created_at is SYSDATE, so the column is stamped by the database clock rather than
+        // the app clock. Comparing against SYSDATE is what makes this stable on a machine
+        // and container whose timezones differ. Oracle DATE also has no sub-second part.
+        Assert.InRange(media.CreatedAt, before.AddSeconds(-1), after.AddSeconds(1));
+    }
+
+    [IntegrationFact]
+    public async Task Reading_media_back_maps_the_nullable_columns_as_null()
+    {
+        var inserted = await Media.AddAsync(new Media { Title = Marker + "nulls", MediaType = "MOVIE" });
+        Track(new Media { MediaId = inserted });
+
+        var media = await Media.GetByIdAsync(inserted);
+
+        Assert.NotNull(media);
+        Assert.Null(media.ReleaseYear);
+        Assert.Null(media.Overview);
+        Assert.Null(media.PosterUrl);
+        Assert.Null(media.TmdbId);
+    }
+
+    [IntegrationFact]
+    public async Task Reading_an_unknown_media_id_returns_null()
+    {
+        Assert.Null(await Media.GetByIdAsync(-1));
+    }
+
+    [IntegrationFact]
+    public async Task Listing_media_includes_the_inserted_row()
+    {
+        var media = await AddMediaAsync("list-includes");
+
+        var all = (await Media.GetAllAsync()).ToList();
+
+        Assert.Contains(all, item => item.MediaId == media.MediaId);
+    }
 }
