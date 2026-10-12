@@ -3,6 +3,7 @@ using System.Net.Sockets;
 using MediaTracker.Api.Repositories;
 using MediaTracker.Api.Endpoints;
 using MediaTracker.Api.Services;
+using Microsoft.OpenApi;
 var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddScoped<IMediaRepository, MediaRepository>();
 builder.Services.AddScoped<IGenreRepository, GenreRepository>();
@@ -37,7 +38,15 @@ builder.Services.AddHttpClient("Tmdb", client =>
 // Add services to the container.
 // Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
 builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddSwaggerGen();
+builder.Services.AddSwaggerGen(options =>
+{
+    options.SwaggerDoc("v1", new OpenApiInfo
+    {
+        Title = "Media Tracker API",
+        Version = "v1",
+        Description = "TV and movie tracker backed by Oracle, using Dapper and ASP.NET Core minimal APIs."
+    });
+});
 
 var app = builder.Build();
 

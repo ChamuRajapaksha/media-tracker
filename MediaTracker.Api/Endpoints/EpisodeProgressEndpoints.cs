@@ -1,3 +1,4 @@
+using MediaTracker.Api.Models;
 using MediaTracker.Api.Repositories;
 
 namespace MediaTracker.Api.Endpoints;
@@ -10,13 +11,16 @@ public static class EpisodeProgressEndpoints
     {
         // Split into two groups rather than one group with a literal "progress" segment
         // alongside {episodeId}, so no route has to win on literal-vs-parameter precedence.
-        var episodeGroup = app.MapGroup("/media/{mediaId}/seasons/{seasonId}/episodes/{episodeId}/progress");
+        var episodeGroup = app.MapGroup("/media/{mediaId}/seasons/{seasonId}/episodes/{episodeId}/progress").WithTags("Episode Progress");
 
         episodeGroup.MapGet("/", async (int mediaId, int seasonId, int episodeId, IEpisodeProgressRepository repo) =>
         {
             var progress = await repo.GetByEpisodeIdAsync(episodeId);
             return progress is not null ? Results.Ok(progress) : Results.NotFound();
-        });
+        })
+        .WithSummary("Get an episode's watch progress")
+        .Produces<EpisodeProgress>(StatusCodes.Status200OK)
+        .Produces(StatusCodes.Status404NotFound);
 
         episodeGroup.MapPut("/", async (int mediaId, int seasonId, int episodeId, IEpisodeProgressRepository progressRepo, IEpisodeRepository episodeRepo, ISeasonRepository seasonRepo, IWatchStatusRepository watchStatusRepo) =>
         {
@@ -46,20 +50,29 @@ public static class EpisodeProgressEndpoints
 
             var progress = await progressRepo.GetByEpisodeIdAsync(episodeId);
             return Results.Ok(progress);
-        });
+        })
+        .WithSummary("Mark an episode watched")
+        .WithDescription("Validates the media/season/episode chain from the URL, then marks the episode watched. Auto-completes the parent show's watch status when this was the last unwatched episode of the season.")
+        .Produces<EpisodeProgress>(StatusCodes.Status200OK)
+        .Produces(StatusCodes.Status404NotFound);
 
         episodeGroup.MapDelete("/", async (int mediaId, int seasonId, int episodeId, IEpisodeProgressRepository repo) =>
         {
             var removed = await repo.MarkUnwatchedAsync(episodeId);
             return removed ? Results.NoContent() : Results.NotFound();
-        });
+        })
+        .WithSummary("Mark an episode unwatched")
+        .Produces(StatusCodes.Status204NoContent)
+        .Produces(StatusCodes.Status404NotFound);
 
-        var seasonGroup = app.MapGroup("/media/{mediaId}/seasons/{seasonId}/progress");
+        var seasonGroup = app.MapGroup("/media/{mediaId}/seasons/{seasonId}/progress").WithTags("Episode Progress");
 
         seasonGroup.MapGet("/", async (int mediaId, int seasonId, IEpisodeProgressRepository repo) =>
         {
             var progress = await repo.GetBySeasonIdAsync(seasonId);
             return Results.Ok(progress);
-        });
+        })
+        .WithSummary("List watch progress for a season")
+        .Produces<List<EpisodeProgress>>(StatusCodes.Status200OK);
     }
 }

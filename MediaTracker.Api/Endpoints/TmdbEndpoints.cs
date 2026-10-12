@@ -12,7 +12,7 @@ public static class TmdbEndpoints
 
     public static void MapTmdbEndpoints(this WebApplication app)
     {
-        var group = app.MapGroup("/tmdb");
+        var group = app.MapGroup("/tmdb").WithTags("TMDB");
         group.MapPost("/import", async (int tmdbId, string type, ITmdbService tmdb, IMediaRepository mediaRepo) =>
         {
             var details = await tmdb.GetDetailsAsync(tmdbId, type);
@@ -41,7 +41,11 @@ public static class TmdbEndpoints
             var newId = await mediaRepo.AddAsync(media);
             var created = await mediaRepo.GetByIdAsync(newId);
             return Results.Created($"/media/{newId}", created);
-        });
+        })
+        .WithSummary("Import a movie or show from TMDB")
+        .WithDescription("Fetches details from TMDB and creates a media row. Use type=movie or type=tv; the value is translated to the DB's MOVIE/SHOW.")
+        .Produces<Media>(StatusCodes.Status201Created)
+        .Produces(StatusCodes.Status404NotFound);
 
         group.MapPost("/import-seasons", async (int mediaId, ITmdbService tmdb, IMediaRepository mediaRepo, ISeasonRepository seasonRepo, IEpisodeRepository episodeRepo) =>
         {
@@ -109,6 +113,11 @@ public static class TmdbEndpoints
             }
 
             return Results.Ok(new { mediaId, seasonsImported, episodesImported });
-        });
+        })
+        .WithSummary("Import a show's seasons and episodes from TMDB")
+        .WithDescription("Upserts seasons and episodes for an already-imported show. Season and episode writes are idempotent, capped at 25 seasons per call.")
+        .Produces(StatusCodes.Status200OK)
+        .Produces(StatusCodes.Status404NotFound)
+        .ProducesProblem(StatusCodes.Status400BadRequest);
     }
 }
