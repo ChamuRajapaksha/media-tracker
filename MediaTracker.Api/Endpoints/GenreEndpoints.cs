@@ -1,7 +1,14 @@
+using System.ComponentModel.DataAnnotations;
 using MediaTracker.Api.Models;
 using MediaTracker.Api.Repositories;
 
 namespace MediaTracker.Api.Endpoints;
+
+public record GenreCreateRequest
+{
+    [Required, StringLength(50)]
+    public string Name { get; init; } = string.Empty;
+}
 
 public static class GenreEndpoints
 {
@@ -26,14 +33,15 @@ public static class GenreEndpoints
         .Produces<Genre>(StatusCodes.Status200OK)
         .Produces(StatusCodes.Status404NotFound);
 
-        group.MapPost("/", async (Genre genre, IGenreRepository repo) =>
+        group.MapPost("/", async (GenreCreateRequest request, IGenreRepository repo) =>
         {
-            var newId = await repo.AddAsync(genre);
+            var newId = await repo.AddAsync(new Genre { Name = request.Name });
             var created = await repo.GetByIdAsync(newId);
             return Results.Created($"/genres/{newId}", created);
         })
         .WithSummary("Create a genre")
-        .Produces<Genre>(StatusCodes.Status201Created);
+        .Produces<Genre>(StatusCodes.Status201Created)
+        .ProducesValidationProblem();
 
         group.MapDelete("/{id}", async (int id, IGenreRepository repo) =>
         {

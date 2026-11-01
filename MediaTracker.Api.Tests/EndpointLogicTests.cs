@@ -458,6 +458,41 @@ public class EndpointLogicTests : IDisposable
         await _factory.Media.DidNotReceive().UpdateAsync(Arg.Any<Media>());
     }
 
+    [Fact]
+    public async Task Creating_a_genre_maps_the_name_onto_the_model()
+    {
+        _factory.Genres.AddAsync(Arg.Any<Genre>()).Returns(5);
+        _factory.Genres.GetByIdAsync(5).Returns(new Genre { GenreId = 5, Name = "Drama" });
+
+        var response = await _client.PostAsync("/genres", GenreRequest("Drama"));
+
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        await _factory.Genres.Received(1).AddAsync(Arg.Is<Genre>(genre => genre.Name == "Drama"));
+    }
+
+    [Fact]
+    public async Task Creating_a_genre_with_a_blank_name_returns_400()
+    {
+        var response = await _client.PostAsync("/genres", GenreRequest(""));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        await _factory.Genres.DidNotReceive().AddAsync(Arg.Any<Genre>());
+    }
+
+    [Fact]
+    public async Task Creating_a_genre_with_an_oversized_name_returns_400()
+    {
+        var response = await _client.PostAsync("/genres", GenreRequest(new string('x', 51)));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        await _factory.Genres.DidNotReceive().AddAsync(Arg.Any<Genre>());
+    }
+
+    private static StringContent GenreRequest(string name) => new(
+        Json(new { name }),
+        System.Text.Encoding.UTF8,
+        "application/json");
+
     private static StringContent CreateRequest(
         string title = "Severance",
         string mediaType = "SHOW",
