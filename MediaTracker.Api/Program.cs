@@ -2,9 +2,12 @@ using System.Net;
 using System.Net.Sockets;
 using MediaTracker.Api.Repositories;
 using MediaTracker.Api.Endpoints;
+using MediaTracker.Api.Infrastructure;
 using MediaTracker.Api.Services;
 using Microsoft.OpenApi;
 var builder = WebApplication.CreateBuilder(args);
+builder.Services.AddProblemDetails();
+builder.Services.AddExceptionHandler<OracleExceptionHandler>();
 builder.Services.AddScoped<IMediaRepository, MediaRepository>();
 builder.Services.AddScoped<IGenreRepository, GenreRepository>();
 builder.Services.AddScoped<ISeasonRepository, SeasonRepository>();
@@ -49,6 +52,8 @@ builder.Services.AddSwaggerGen(options =>
 });
 
 var app = builder.Build();
+
+app.UseExceptionHandler();
 
 // Configure the HTTP request pipeline.
 if (app.Environment.IsDevelopment())
