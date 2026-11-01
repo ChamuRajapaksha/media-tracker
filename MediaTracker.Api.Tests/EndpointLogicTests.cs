@@ -527,6 +527,73 @@ public class EndpointLogicTests : IDisposable
         await _factory.Seasons.DidNotReceive().AddAsync(Arg.Any<Season>());
     }
 
+    [Fact]
+    public async Task Creating_an_episode_maps_the_route_and_request_onto_the_model()
+    {
+        _factory.Episodes.AddAsync(Arg.Any<Episode>()).Returns(9);
+        _factory.Episodes.GetByIdAsync(9).Returns(new Episode
+        {
+            EpisodeId = 9,
+            SeasonId = 2,
+            EpisodeNumber = 3,
+            Title = "Half Loop",
+            AirDate = new DateTime(2022, 2, 25)
+        });
+
+        var response = await _client.PostAsync(
+            "/media/42/seasons/2/episodes",
+            EpisodeRequest(episodeNumber: 3, title: "Half Loop", airDate: new DateOnly(2022, 2, 25)));
+
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        await _factory.Episodes.Received(1).AddAsync(Arg.Is<Episode>(episode =>
+            episode.SeasonId == 2
+            && episode.EpisodeNumber == 3
+            && episode.Title == "Half Loop"
+            && episode.AirDate == new DateTime(2022, 2, 25)));
+    }
+
+    [Fact]
+    public async Task Creating_an_episode_without_an_air_date_stores_null()
+    {
+        _factory.Episodes.AddAsync(Arg.Any<Episode>()).Returns(9);
+        _factory.Episodes.GetByIdAsync(9).Returns(new Episode { EpisodeId = 9, SeasonId = 2 });
+
+        var response = await _client.PostAsync("/media/42/seasons/2/episodes", EpisodeRequest());
+
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        await _factory.Episodes.Received(1).AddAsync(Arg.Is<Episode>(episode => episode.AirDate == null));
+    }
+
+    [Fact]
+    public async Task Creating_an_episode_with_a_negative_number_returns_400()
+    {
+        var response = await _client.PostAsync(
+            "/media/42/seasons/2/episodes",
+            EpisodeRequest(episodeNumber: -1));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        await _factory.Episodes.DidNotReceive().AddAsync(Arg.Any<Episode>());
+    }
+
+    [Fact]
+    public async Task Creating_an_episode_with_an_oversized_title_returns_400()
+    {
+        var response = await _client.PostAsync(
+            "/media/42/seasons/2/episodes",
+            EpisodeRequest(title: new string('x', 256)));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        await _factory.Episodes.DidNotReceive().AddAsync(Arg.Any<Episode>());
+    }
+
+    private static StringContent EpisodeRequest(
+        int episodeNumber = 1,
+        string? title = "Pilot",
+        DateOnly? airDate = null) => new(
+        Json(new { episodeNumber, title, airDate }),
+        System.Text.Encoding.UTF8,
+        "application/json");
+
     private static StringContent SeasonRequest(int seasonNumber = 1, string? title = "Season 1") => new(
         Json(new { seasonNumber, title }),
         System.Text.Encoding.UTF8,

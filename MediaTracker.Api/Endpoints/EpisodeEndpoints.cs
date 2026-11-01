@@ -1,7 +1,19 @@
+using System.ComponentModel.DataAnnotations;
 using MediaTracker.Api.Models;
 using MediaTracker.Api.Repositories;
 
 namespace MediaTracker.Api.Endpoints;
+
+public record EpisodeCreateRequest
+{
+    [Range(0, int.MaxValue)]
+    public int EpisodeNumber { get; init; }
+
+    [StringLength(255)]
+    public string? Title { get; init; }
+
+    public DateOnly? AirDate { get; init; }
+}
 
 public static class EpisodeEndpoints
 {
@@ -17,15 +29,23 @@ public static class EpisodeEndpoints
         .WithSummary("List the episodes of a season")
         .Produces<List<Episode>>(StatusCodes.Status200OK);
 
-        group.MapPost("/", async (int mediaId, int seasonId, Episode episode, IEpisodeRepository repo) =>
+        group.MapPost("/", async (int mediaId, int seasonId, EpisodeCreateRequest request, IEpisodeRepository repo) =>
         {
-            episode.SeasonId = seasonId;
+            var episode = new Episode
+            {
+                SeasonId = seasonId,
+                EpisodeNumber = request.EpisodeNumber,
+                Title = request.Title,
+                AirDate = request.AirDate?.ToDateTime(TimeOnly.MinValue)
+            };
+
             var newId = await repo.AddAsync(episode);
             var created = await repo.GetByIdAsync(newId);
             return Results.Created($"/media/{mediaId}/seasons/{seasonId}/episodes/{newId}", created);
         })
         .WithSummary("Add an episode to a season")
-        .Produces<Episode>(StatusCodes.Status201Created);
+        .Produces<Episode>(StatusCodes.Status201Created)
+        .ProducesValidationProblem();
 
         group.MapDelete("/{episodeId}", async (int mediaId, int seasonId, int episodeId, IEpisodeRepository repo) =>
         {
