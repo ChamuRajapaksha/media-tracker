@@ -1,7 +1,17 @@
+using System.ComponentModel.DataAnnotations;
 using MediaTracker.Api.Models;
 using MediaTracker.Api.Repositories;
 
 namespace MediaTracker.Api.Endpoints;
+
+public record SeasonCreateRequest
+{
+    [Range(0, int.MaxValue)]
+    public int SeasonNumber { get; init; }
+
+    [StringLength(255)]
+    public string? Title { get; init; }
+}
 
 public static class SeasonEndpoints
 {
@@ -17,15 +27,22 @@ public static class SeasonEndpoints
         .WithSummary("List the seasons of a show")
         .Produces<List<Season>>(StatusCodes.Status200OK);
 
-        group.MapPost("/", async (int mediaId, Season season, ISeasonRepository repo) =>
+        group.MapPost("/", async (int mediaId, SeasonCreateRequest request, ISeasonRepository repo) =>
         {
-            season.MediaId = mediaId;
+            var season = new Season
+            {
+                MediaId = mediaId,
+                SeasonNumber = request.SeasonNumber,
+                Title = request.Title
+            };
+
             var newId = await repo.AddAsync(season);
             var created = await repo.GetByIdAsync(newId);
             return Results.Created($"/media/{mediaId}/seasons/{newId}", created);
         })
         .WithSummary("Add a season to a show")
-        .Produces<Season>(StatusCodes.Status201Created);
+        .Produces<Season>(StatusCodes.Status201Created)
+        .ProducesValidationProblem();
 
         group.MapDelete("/{seasonId}", async (int mediaId, int seasonId, ISeasonRepository repo) =>
         {

@@ -488,6 +488,50 @@ public class EndpointLogicTests : IDisposable
         await _factory.Genres.DidNotReceive().AddAsync(Arg.Any<Genre>());
     }
 
+    [Fact]
+    public async Task Creating_a_season_maps_the_route_and_request_onto_the_model()
+    {
+        _factory.Seasons.AddAsync(Arg.Any<Season>()).Returns(8);
+        _factory.Seasons.GetByIdAsync(8).Returns(new Season
+        {
+            SeasonId = 8,
+            MediaId = 42,
+            SeasonNumber = 2,
+            Title = "Season 2"
+        });
+
+        var response = await _client.PostAsync("/media/42/seasons", SeasonRequest(seasonNumber: 2, title: "Season 2"));
+
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        await _factory.Seasons.Received(1).AddAsync(Arg.Is<Season>(season =>
+            season.MediaId == 42
+            && season.SeasonNumber == 2
+            && season.Title == "Season 2"));
+    }
+
+    [Fact]
+    public async Task Creating_a_season_with_a_negative_number_returns_400()
+    {
+        var response = await _client.PostAsync("/media/42/seasons", SeasonRequest(seasonNumber: -1));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        await _factory.Seasons.DidNotReceive().AddAsync(Arg.Any<Season>());
+    }
+
+    [Fact]
+    public async Task Creating_a_season_with_an_oversized_title_returns_400()
+    {
+        var response = await _client.PostAsync("/media/42/seasons", SeasonRequest(title: new string('x', 256)));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        await _factory.Seasons.DidNotReceive().AddAsync(Arg.Any<Season>());
+    }
+
+    private static StringContent SeasonRequest(int seasonNumber = 1, string? title = "Season 1") => new(
+        Json(new { seasonNumber, title }),
+        System.Text.Encoding.UTF8,
+        "application/json");
+
     private static StringContent GenreRequest(string name) => new(
         Json(new { name }),
         System.Text.Encoding.UTF8,
