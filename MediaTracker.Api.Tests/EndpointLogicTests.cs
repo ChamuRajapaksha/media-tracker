@@ -389,6 +389,94 @@ public class EndpointLogicTests : IDisposable
         Assert.Equal(7, body.MediaId);
     }
 
+    [Fact]
+    public async Task Creating_media_maps_every_request_field_onto_the_model()
+    {
+        _factory.Media.AddAsync(Arg.Any<Media>()).Returns(11);
+        GivenCreatedMedia(11);
+
+        var response = await _client.PostAsync("/media", CreateRequest(
+            title: "Severance",
+            mediaType: "SHOW",
+            releaseYear: 2022,
+            overview: "A workplace thriller",
+            posterUrl: "https://example.test/poster.jpg",
+            tmdbId: 95396));
+
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        await _factory.Media.Received(1).AddAsync(Arg.Is<Media>(media =>
+            media.Title == "Severance"
+            && media.MediaType == "SHOW"
+            && media.ReleaseYear == 2022
+            && media.Overview == "A workplace thriller"
+            && media.PosterUrl == "https://example.test/poster.jpg"
+            && media.TmdbId == 95396));
+    }
+
+    [Fact]
+    public async Task Creating_media_with_a_blank_title_returns_400()
+    {
+        var response = await _client.PostAsync("/media", CreateRequest(title: ""));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        await _factory.Media.DidNotReceive().AddAsync(Arg.Any<Media>());
+    }
+
+    [Fact]
+    public async Task Creating_media_with_an_unknown_media_type_returns_400()
+    {
+        var response = await _client.PostAsync("/media", CreateRequest(mediaType: "BOOK"));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        await _factory.Media.DidNotReceive().AddAsync(Arg.Any<Media>());
+    }
+
+    [Fact]
+    public async Task Creating_media_with_an_out_of_range_year_returns_400()
+    {
+        var response = await _client.PostAsync("/media", CreateRequest(releaseYear: 1800));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        await _factory.Media.DidNotReceive().AddAsync(Arg.Any<Media>());
+    }
+
+    [Fact]
+    public async Task Creating_media_with_an_oversized_overview_returns_400()
+    {
+        var response = await _client.PostAsync("/media", CreateRequest(overview: new string('x', 4001)));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        await _factory.Media.DidNotReceive().AddAsync(Arg.Any<Media>());
+    }
+
+    [Fact]
+    public async Task Updating_media_with_an_invalid_media_type_returns_400()
+    {
+        var response = await _client.PutAsync("/media/7", UpdateRequest(mediaType: "BOOK"));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        await _factory.Media.DidNotReceive().UpdateAsync(Arg.Any<Media>());
+    }
+
+    private static StringContent CreateRequest(
+        string title = "Severance",
+        string mediaType = "SHOW",
+        int? releaseYear = 2022,
+        string? overview = "Created from a test",
+        string? posterUrl = null,
+        int? tmdbId = 95396) => new(
+        Json(new
+        {
+            title,
+            mediaType,
+            releaseYear,
+            overview,
+            posterUrl,
+            tmdbId
+        }),
+        System.Text.Encoding.UTF8,
+        "application/json");
+
     private static StringContent UpdateRequest(
         string title = "Severance",
         string mediaType = "SHOW",

@@ -1,15 +1,48 @@
+using System.ComponentModel.DataAnnotations;
 using MediaTracker.Api.Models;
 using MediaTracker.Api.Repositories;
 
 namespace MediaTracker.Api.Endpoints;
 
-public record MediaUpdateRequest(
-    string Title,
-    string MediaType,
-    int? ReleaseYear,
-    string? Overview,
-    string? PosterUrl,
-    int? TmdbId);
+public record MediaCreateRequest
+{
+    [Required, StringLength(255)]
+    public string Title { get; init; } = string.Empty;
+
+    [Required, RegularExpression("^(MOVIE|SHOW)$")]
+    public string MediaType { get; init; } = string.Empty;
+
+    [Range(1888, 2100)]
+    public int? ReleaseYear { get; init; }
+
+    [StringLength(4000)]
+    public string? Overview { get; init; }
+
+    [StringLength(500)]
+    public string? PosterUrl { get; init; }
+
+    public int? TmdbId { get; init; }
+}
+
+public record MediaUpdateRequest
+{
+    [Required, StringLength(255)]
+    public string Title { get; init; } = string.Empty;
+
+    [Required, RegularExpression("^(MOVIE|SHOW)$")]
+    public string MediaType { get; init; } = string.Empty;
+
+    [Range(1888, 2100)]
+    public int? ReleaseYear { get; init; }
+
+    [StringLength(4000)]
+    public string? Overview { get; init; }
+
+    [StringLength(500)]
+    public string? PosterUrl { get; init; }
+
+    public int? TmdbId { get; init; }
+}
 
 public static class MediaEndpoints
 {
@@ -35,14 +68,25 @@ public static class MediaEndpoints
         .Produces<Media>(StatusCodes.Status200OK)
         .Produces(StatusCodes.Status404NotFound);
 
-        group.MapPost("/", async (Media media, IMediaRepository repo) =>
+        group.MapPost("/", async (MediaCreateRequest request, IMediaRepository repo) =>
         {
+            var media = new Media
+            {
+                Title = request.Title,
+                MediaType = request.MediaType,
+                ReleaseYear = request.ReleaseYear,
+                Overview = request.Overview,
+                PosterUrl = request.PosterUrl,
+                TmdbId = request.TmdbId
+            };
+
             var newId = await repo.AddAsync(media);
             var created = await repo.GetByIdAsync(newId);
             return Results.Created($"/media/{newId}", created);
         })
         .WithSummary("Create a media item")
-        .Produces<Media>(StatusCodes.Status201Created);
+        .Produces<Media>(StatusCodes.Status201Created)
+        .ProducesValidationProblem();
 
         group.MapPost("/{id}/genres/{genreId}", async (int id, int genreId, IMediaRepository repo) =>
         {
@@ -98,6 +142,7 @@ public static class MediaEndpoints
         .WithSummary("Update a media item's own fields")
         .WithDescription("Updates title, type, release year, overview, poster, and TMDB id. Does not change watch status or rating.")
         .Produces<Media>(StatusCodes.Status200OK)
-        .Produces(StatusCodes.Status404NotFound);
+        .Produces(StatusCodes.Status404NotFound)
+        .ProducesValidationProblem();
     }
 }

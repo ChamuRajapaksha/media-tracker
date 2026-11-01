@@ -7,6 +7,7 @@ using MediaTracker.Api.Services;
 using Microsoft.OpenApi;
 var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddProblemDetails();
+builder.Services.AddValidation();
 builder.Services.AddExceptionHandler<OracleExceptionHandler>();
 builder.Services.AddScoped<IMediaRepository, MediaRepository>();
 builder.Services.AddScoped<IGenreRepository, GenreRepository>();
