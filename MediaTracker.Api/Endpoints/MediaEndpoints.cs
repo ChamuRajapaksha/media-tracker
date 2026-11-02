@@ -88,13 +88,27 @@ public static class MediaEndpoints
         .Produces<Media>(StatusCodes.Status201Created)
         .ProducesValidationProblem();
 
-        group.MapPost("/{id}/genres/{genreId}", async (int id, int genreId, IMediaRepository repo) =>
+        group.MapPost("/{id}/genres/{genreId}", async (int id, int genreId, IMediaRepository repo, IGenreRepository genreRepo) =>
         {
+            var media = await repo.GetByIdAsync(id);
+            if (media is null)
+            {
+                return Results.NotFound();
+            }
+
+            var genre = await genreRepo.GetByIdAsync(genreId);
+            if (genre is null)
+            {
+                return Results.NotFound();
+            }
+
             await repo.AddGenreAsync(id, genreId);
             return Results.NoContent();
         })
         .WithSummary("Link a genre to a media item")
-        .Produces(StatusCodes.Status204NoContent);
+        .Produces(StatusCodes.Status204NoContent)
+        .Produces(StatusCodes.Status404NotFound)
+        .ProducesProblem(StatusCodes.Status409Conflict);
 
         group.MapGet("/{id}/genres", async (int id, IMediaRepository repo) =>
         {

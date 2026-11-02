@@ -1,8 +1,10 @@
 using System.Net;
 using System.Net.Http.Json;
+using System.Reflection;
 using MediaTracker.Api.Models;
 using MediaTracker.Api.Models.Tmdb;
 using NSubstitute;
+using Oracle.ManagedDataAccess.Client;
 
 namespace MediaTracker.Api.Tests;
 
@@ -486,6 +488,52 @@ public class EndpointLogicTests : IDisposable
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
         await _factory.Genres.DidNotReceive().AddAsync(Arg.Any<Genre>());
+    }
+
+    [Fact]
+    public async Task Linking_a_genre_returns_no_content()
+    {
+        GivenMediaAndGenre();
+
+        var response = await _client.PostAsync("/media/7/genres/3", null);
+
+        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+        await _factory.Media.Received(1).AddGenreAsync(7, 3);
+    }
+
+    [Fact]
+    public async Task Linking_a_genre_to_unknown_media_returns_404()
+    {
+        _factory.Media.GetByIdAsync(7).Returns((Media?)null);
+
+        var response = await _client.PostAsync("/media/7/genres/3", null);
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        await _factory.Media.DidNotReceive().AddGenreAsync(Arg.Any<int>(), Arg.Any<int>());
+    }
+
+    [Fact]
+    public async Task Linking_an_unknown_genre_returns_404()
+    {
+        _factory.Media.GetByIdAsync(7).Returns(new Media { MediaId = 7, Title = "Severance", MediaType = "SHOW" });
+        _factory.Genres.GetByIdAsync(3).Returns((Genre?)null);
+
+        var response = await _client.PostAsync("/media/7/genres/3", null);
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        await _factory.Media.DidNotReceive().AddGenreAsync(Arg.Any<int>(), Arg.Any<int>());
+    }
+
+    [Fact]
+    public async Task Linking_a_genre_twice_returns_409()
+    {
+        GivenMediaAndGenre();
+        _factory.Media.AddGenreAsync(7, 3)
+            .Returns(Task.FromException(OracleExceptionWithNumber(1)));
+
+        var response = await _client.PostAsync("/media/7/genres/3", null);
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
     }
 
     [Fact]
@@ -1171,6 +1219,22 @@ public class EndpointLogicTests : IDisposable
 
     private void GivenCreatedMedia(int mediaId = 1) =>
         _factory.Media.GetByIdAsync(mediaId).Returns(new Media { MediaId = mediaId, Title = "Created" });
+
+    private void GivenMediaAndGenre()
+    {
+        _factory.Media.GetByIdAsync(7).Returns(new Media { MediaId = 7, Title = "Severance", MediaType = "SHOW" });
+        _factory.Genres.GetByIdAsync(3).Returns(new Genre { GenreId = 3, Name = "Drama" });
+    }
+
+    private static OracleException OracleExceptionWithNumber(int number)
+    {
+        var constructor = typeof(OracleException).GetConstructor(
+            BindingFlags.Instance | BindingFlags.NonPublic,
+            binder: null,
+            [typeof(int), typeof(string), typeof(string), typeof(string), typeof(int)],
+            modifiers: null)!;
+        return (OracleException)constructor.Invoke([number, "ORA test", "test", "test", 1]);
+    }
 
     private void GivenExistingMedia() =>
         _factory.Media.GetByIdAsync(7).Returns(new Media
