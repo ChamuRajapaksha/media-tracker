@@ -586,6 +586,33 @@ public class EndpointLogicTests : IDisposable
         await _factory.Episodes.DidNotReceive().AddAsync(Arg.Any<Episode>());
     }
 
+    [Theory]
+    [InlineData("PLAN_TO_WATCH")]
+    [InlineData("WATCHING")]
+    [InlineData("COMPLETED")]
+    [InlineData("DROPPED")]
+    public async Task Setting_a_known_watch_status_returns_ok(string status)
+    {
+        var response = await _client.PutAsync("/media/1/watch-status", WatchStatusContent(status));
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        await _factory.WatchStatus.Received(1).SetStatusAsync(1, status);
+    }
+
+    [Fact]
+    public async Task Setting_an_unknown_watch_status_returns_400()
+    {
+        var response = await _client.PutAsync("/media/1/watch-status", WatchStatusContent("BINGEING"));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        await _factory.WatchStatus.DidNotReceive().SetStatusAsync(Arg.Any<int>(), Arg.Any<string>());
+    }
+
+    private static StringContent WatchStatusContent(string status) => new(
+        Json(new { status }),
+        System.Text.Encoding.UTF8,
+        "application/json");
+
     private static StringContent EpisodeRequest(
         int episodeNumber = 1,
         string? title = "Pilot",

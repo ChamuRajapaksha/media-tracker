@@ -1,9 +1,14 @@
+using System.ComponentModel.DataAnnotations;
 using MediaTracker.Api.Models;
 using MediaTracker.Api.Repositories;
 
 namespace MediaTracker.Api.Endpoints;
 
-public record WatchStatusRequest(string Status);
+public record WatchStatusRequest
+{
+    [Required, AllowedValues("PLAN_TO_WATCH", "WATCHING", "COMPLETED", "DROPPED")]
+    public string Status { get; init; } = string.Empty;
+}
 
 public static class WatchStatusEndpoints
 {
