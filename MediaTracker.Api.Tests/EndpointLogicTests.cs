@@ -774,6 +774,16 @@ public class EndpointLogicTests : IDisposable
     }
 
     [Fact]
+    public async Task Importing_with_an_unknown_media_type_returns_400()
+    {
+        var response = await _client.PostAsync("/tmdb/import?tmdbId=1&type=book", null);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        await _factory.Tmdb.DidNotReceive().GetDetailsAsync(Arg.Any<int>(), Arg.Any<string>());
+        await _factory.Media.DidNotReceive().AddAsync(Arg.Any<Media>());
+    }
+
+    [Fact]
     public async Task Importing_copies_the_tmdb_fields_onto_the_new_media()
     {
         GivenTmdbDetails(new TmdbSearchResult
