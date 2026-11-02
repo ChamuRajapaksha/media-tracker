@@ -25,14 +25,21 @@ public static class WatchStatusEndpoints
         .Produces<WatchStatus>(StatusCodes.Status200OK)
         .Produces(StatusCodes.Status404NotFound);
 
-        group.MapPut("/", async (int mediaId, WatchStatusRequest request, IWatchStatusRepository repo) =>
+        group.MapPut("/", async (int mediaId, WatchStatusRequest request, IWatchStatusRepository repo, IMediaRepository mediaRepo) =>
         {
+            var media = await mediaRepo.GetByIdAsync(mediaId);
+            if (media is null)
+            {
+                return Results.NotFound();
+            }
+
             await repo.SetStatusAsync(mediaId, request.Status);
             var updated = await repo.GetByMediaIdAsync(mediaId);
             return Results.Ok(updated);
         })
         .WithSummary("Set a media item's watch status")
         .WithDescription("Upserts the single watch status row for this media item.")
-        .Produces<WatchStatus>(StatusCodes.Status200OK);
+        .Produces<WatchStatus>(StatusCodes.Status200OK)
+        .Produces(StatusCodes.Status404NotFound);
     }
 }

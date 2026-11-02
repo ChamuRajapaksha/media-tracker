@@ -593,6 +593,8 @@ public class EndpointLogicTests : IDisposable
     [InlineData("DROPPED")]
     public async Task Setting_a_known_watch_status_returns_ok(string status)
     {
+        _factory.Media.GetByIdAsync(1).Returns(new Media { MediaId = 1, Title = "Existing", MediaType = "SHOW" });
+
         var response = await _client.PutAsync("/media/1/watch-status", WatchStatusContent(status));
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
@@ -605,6 +607,17 @@ public class EndpointLogicTests : IDisposable
         var response = await _client.PutAsync("/media/1/watch-status", WatchStatusContent("BINGEING"));
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        await _factory.WatchStatus.DidNotReceive().SetStatusAsync(Arg.Any<int>(), Arg.Any<string>());
+    }
+
+    [Fact]
+    public async Task Setting_watch_status_for_unknown_media_returns_404()
+    {
+        _factory.Media.GetByIdAsync(404).Returns((Media?)null);
+
+        var response = await _client.PutAsync("/media/404/watch-status", WatchStatusContent("WATCHING"));
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
         await _factory.WatchStatus.DidNotReceive().SetStatusAsync(Arg.Any<int>(), Arg.Any<string>());
     }
 
