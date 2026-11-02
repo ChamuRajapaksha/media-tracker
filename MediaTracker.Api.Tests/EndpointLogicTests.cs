@@ -624,6 +624,8 @@ public class EndpointLogicTests : IDisposable
     [Fact]
     public async Task Setting_a_rating_maps_the_score_and_review_onto_the_request()
     {
+        _factory.Media.GetByIdAsync(1).Returns(new Media { MediaId = 1, Title = "Existing", MediaType = "SHOW" });
+
         var response = await _client.PutAsync("/media/1/rating", RatingContent(8.5m, "Excellent"));
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
@@ -633,6 +635,8 @@ public class EndpointLogicTests : IDisposable
     [Fact]
     public async Task Setting_a_rating_without_a_score_is_allowed()
     {
+        _factory.Media.GetByIdAsync(1).Returns(new Media { MediaId = 1, Title = "Existing", MediaType = "SHOW" });
+
         var response = await _client.PutAsync("/media/1/rating", RatingContent(null, "Not scored yet"));
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
@@ -657,6 +661,18 @@ public class EndpointLogicTests : IDisposable
         var response = await _client.PutAsync("/media/1/rating", RatingContent(8m, new string('x', 4001)));
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        await _factory.Ratings.DidNotReceive()
+            .SetRatingAsync(Arg.Any<int>(), Arg.Any<decimal?>(), Arg.Any<string?>());
+    }
+
+    [Fact]
+    public async Task Setting_a_rating_for_unknown_media_returns_404()
+    {
+        _factory.Media.GetByIdAsync(404).Returns((Media?)null);
+
+        var response = await _client.PutAsync("/media/404/rating", RatingContent(8m, "Excellent"));
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
         await _factory.Ratings.DidNotReceive()
             .SetRatingAsync(Arg.Any<int>(), Arg.Any<decimal?>(), Arg.Any<string?>());
     }

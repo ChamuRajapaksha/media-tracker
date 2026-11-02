@@ -28,14 +28,21 @@ public static class RatingEndpoints
         .Produces<Rating>(StatusCodes.Status200OK)
         .Produces(StatusCodes.Status404NotFound);
 
-        group.MapPut("/", async (int mediaId, RatingRequest request, IRatingRepository repo) =>
+        group.MapPut("/", async (int mediaId, RatingRequest request, IRatingRepository repo, IMediaRepository mediaRepo) =>
         {
+            var media = await mediaRepo.GetByIdAsync(mediaId);
+            if (media is null)
+            {
+                return Results.NotFound();
+            }
+
             await repo.SetRatingAsync(mediaId, request.Score, request.Review);
             var updated = await repo.GetByMediaIdAsync(mediaId);
             return Results.Ok(updated);
         })
         .WithSummary("Set a media item's rating")
         .WithDescription("Upserts the single rating row for this media item, including an optional review.")
-        .Produces<Rating>(StatusCodes.Status200OK);
+        .Produces<Rating>(StatusCodes.Status200OK)
+        .Produces(StatusCodes.Status404NotFound);
     }
 }
