@@ -608,6 +608,51 @@ public class EndpointLogicTests : IDisposable
         await _factory.WatchStatus.DidNotReceive().SetStatusAsync(Arg.Any<int>(), Arg.Any<string>());
     }
 
+    [Fact]
+    public async Task Setting_a_rating_maps_the_score_and_review_onto_the_request()
+    {
+        var response = await _client.PutAsync("/media/1/rating", RatingContent(8.5m, "Excellent"));
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        await _factory.Ratings.Received(1).SetRatingAsync(1, 8.5m, "Excellent");
+    }
+
+    [Fact]
+    public async Task Setting_a_rating_without_a_score_is_allowed()
+    {
+        var response = await _client.PutAsync("/media/1/rating", RatingContent(null, "Not scored yet"));
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        await _factory.Ratings.Received(1).SetRatingAsync(1, null, "Not scored yet");
+    }
+
+    [Theory]
+    [InlineData(11)]
+    [InlineData(-1)]
+    public async Task Setting_a_rating_outside_the_score_range_returns_400(int score)
+    {
+        var response = await _client.PutAsync("/media/1/rating", RatingContent(score, null));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        await _factory.Ratings.DidNotReceive()
+            .SetRatingAsync(Arg.Any<int>(), Arg.Any<decimal?>(), Arg.Any<string?>());
+    }
+
+    [Fact]
+    public async Task Setting_a_rating_with_an_oversized_review_returns_400()
+    {
+        var response = await _client.PutAsync("/media/1/rating", RatingContent(8m, new string('x', 4001)));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        await _factory.Ratings.DidNotReceive()
+            .SetRatingAsync(Arg.Any<int>(), Arg.Any<decimal?>(), Arg.Any<string?>());
+    }
+
+    private static StringContent RatingContent(decimal? score, string? review) => new(
+        Json(new { score, review }),
+        System.Text.Encoding.UTF8,
+        "application/json");
+
     private static StringContent WatchStatusContent(string status) => new(
         Json(new { status }),
         System.Text.Encoding.UTF8,

@@ -1,9 +1,17 @@
+using System.ComponentModel.DataAnnotations;
 using MediaTracker.Api.Models;
 using MediaTracker.Api.Repositories;
 
 namespace MediaTracker.Api.Endpoints;
 
-public record RatingRequest(decimal? Score, string? Review);
+public record RatingRequest
+{
+    [Range(0, 10)]
+    public decimal? Score { get; init; }
+
+    [StringLength(4000)]
+    public string? Review { get; init; }
+}
 
 public static class RatingEndpoints
 {
