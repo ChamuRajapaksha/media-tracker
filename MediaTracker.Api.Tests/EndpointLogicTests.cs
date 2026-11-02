@@ -539,6 +539,7 @@ public class EndpointLogicTests : IDisposable
     [Fact]
     public async Task Creating_a_season_maps_the_route_and_request_onto_the_model()
     {
+        _factory.Media.GetByIdAsync(42).Returns(new Media { MediaId = 42, Title = "Severance", MediaType = "SHOW" });
         _factory.Seasons.AddAsync(Arg.Any<Season>()).Returns(8);
         _factory.Seasons.GetByIdAsync(8).Returns(new Season
         {
@@ -573,6 +574,101 @@ public class EndpointLogicTests : IDisposable
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
         await _factory.Seasons.DidNotReceive().AddAsync(Arg.Any<Season>());
+    }
+
+    [Fact]
+    public async Task Listing_seasons_returns_the_shows_rows()
+    {
+        _factory.Media.GetByIdAsync(42).Returns(new Media { MediaId = 42, Title = "Severance", MediaType = "SHOW" });
+        _factory.Seasons.GetByMediaIdAsync(42).Returns(
+        [
+            new Season { SeasonId = 8, MediaId = 42, SeasonNumber = 1 },
+            new Season { SeasonId = 9, MediaId = 42, SeasonNumber = 2 }
+        ]);
+
+        var response = await _client.GetAsync("/media/42/seasons");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var seasons = await response.Content.ReadFromJsonAsync<List<Season>>();
+        Assert.Equal([1, 2], seasons?.Select(season => season.SeasonNumber));
+    }
+
+    [Fact]
+    public async Task Listing_seasons_for_unknown_media_returns_404()
+    {
+        _factory.Media.GetByIdAsync(404).Returns((Media?)null);
+
+        var response = await _client.GetAsync("/media/404/seasons");
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        await _factory.Seasons.DidNotReceive().GetByMediaIdAsync(Arg.Any<int>());
+    }
+
+    [Fact]
+    public async Task Listing_seasons_for_a_movie_returns_404()
+    {
+        _factory.Media.GetByIdAsync(7).Returns(new Media { MediaId = 7, Title = "Fight Club", MediaType = "MOVIE" });
+
+        var response = await _client.GetAsync("/media/7/seasons");
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        await _factory.Seasons.DidNotReceive().GetByMediaIdAsync(Arg.Any<int>());
+    }
+
+    [Fact]
+    public async Task Creating_a_season_for_unknown_media_returns_404()
+    {
+        _factory.Media.GetByIdAsync(404).Returns((Media?)null);
+
+        var response = await _client.PostAsync("/media/404/seasons", SeasonRequest());
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        await _factory.Seasons.DidNotReceive().AddAsync(Arg.Any<Season>());
+    }
+
+    [Fact]
+    public async Task Creating_a_season_for_a_movie_returns_404()
+    {
+        _factory.Media.GetByIdAsync(7).Returns(new Media { MediaId = 7, Title = "Fight Club", MediaType = "MOVIE" });
+
+        var response = await _client.PostAsync("/media/7/seasons", SeasonRequest());
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        await _factory.Seasons.DidNotReceive().AddAsync(Arg.Any<Season>());
+    }
+
+    [Fact]
+    public async Task Deleting_a_season_that_belongs_to_another_media_returns_404()
+    {
+        _factory.Seasons.GetByIdAsync(8).Returns(new Season { SeasonId = 8, MediaId = 99, SeasonNumber = 1 });
+
+        var response = await _client.DeleteAsync("/media/42/seasons/8");
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        await _factory.Seasons.DidNotReceive().DeleteAsync(Arg.Any<int>());
+    }
+
+    [Fact]
+    public async Task Deleting_an_unknown_season_returns_404()
+    {
+        _factory.Seasons.GetByIdAsync(8).Returns((Season?)null);
+
+        var response = await _client.DeleteAsync("/media/42/seasons/8");
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        await _factory.Seasons.DidNotReceive().DeleteAsync(Arg.Any<int>());
+    }
+
+    [Fact]
+    public async Task Deleting_a_season_that_belongs_to_the_media_returns_no_content()
+    {
+        _factory.Seasons.GetByIdAsync(8).Returns(new Season { SeasonId = 8, MediaId = 42, SeasonNumber = 1 });
+        _factory.Seasons.DeleteAsync(8).Returns(true);
+
+        var response = await _client.DeleteAsync("/media/42/seasons/8");
+
+        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+        await _factory.Seasons.Received(1).DeleteAsync(8);
     }
 
     [Fact]

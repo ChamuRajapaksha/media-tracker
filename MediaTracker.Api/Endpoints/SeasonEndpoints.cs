@@ -19,16 +19,29 @@ public static class SeasonEndpoints
     {
         var group = app.MapGroup("/media/{mediaId}/seasons").WithTags("Seasons");
 
-        group.MapGet("/", async (int mediaId, ISeasonRepository repo) =>
+        group.MapGet("/", async (int mediaId, ISeasonRepository repo, IMediaRepository mediaRepo) =>
         {
+            var media = await mediaRepo.GetByIdAsync(mediaId);
+            if (media is null || media.MediaType != "SHOW")
+            {
+                return Results.NotFound();
+            }
+
             var seasons = await repo.GetByMediaIdAsync(mediaId);
             return Results.Ok(seasons);
         })
         .WithSummary("List the seasons of a show")
-        .Produces<List<Season>>(StatusCodes.Status200OK);
+        .Produces<List<Season>>(StatusCodes.Status200OK)
+        .Produces(StatusCodes.Status404NotFound);
 
-        group.MapPost("/", async (int mediaId, SeasonCreateRequest request, ISeasonRepository repo) =>
+        group.MapPost("/", async (int mediaId, SeasonCreateRequest request, ISeasonRepository repo, IMediaRepository mediaRepo) =>
         {
+            var media = await mediaRepo.GetByIdAsync(mediaId);
+            if (media is null || media.MediaType != "SHOW")
+            {
+                return Results.NotFound();
+            }
+
             var season = new Season
             {
                 MediaId = mediaId,
@@ -42,10 +55,17 @@ public static class SeasonEndpoints
         })
         .WithSummary("Add a season to a show")
         .Produces<Season>(StatusCodes.Status201Created)
+        .Produces(StatusCodes.Status404NotFound)
         .ProducesValidationProblem();
 
         group.MapDelete("/{seasonId}", async (int mediaId, int seasonId, ISeasonRepository repo) =>
         {
+            var season = await repo.GetByIdAsync(seasonId);
+            if (season is null || season.MediaId != mediaId)
+            {
+                return Results.NotFound();
+            }
+
             var removed = await repo.DeleteAsync(seasonId);
             return removed ? Results.NoContent() : Results.NotFound();
         })
