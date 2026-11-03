@@ -7,6 +7,7 @@ A Trakt-style tracking API for TV shows and movies. Built with **ASP.NET Core 10
 [![Oracle](https://img.shields.io/badge/Oracle-Database-F80000?style=flat-square&logo=oracle&logoColor=white)](https://www.oracle.com/database/)
 [![Dapper](https://img.shields.io/badge/Dapper-2.1-2A5C8A?style=flat-square)](https://dapper-library.github.io/Dapper/)
 [![TMDB](https://img.shields.io/badge/TMDB-API-1B2838?style=flat-square)](https://developer.themoviedb.org/docs)
+[![CI](https://github.com/ChamuRajapaksha/media-tracker/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/ChamuRajapaksha/media-tracker/actions/workflows/ci.yml)
 
 Personal project, built deliberately as a portfolio piece to demonstrate C#/.NET and Oracle work end to end.
 
@@ -43,7 +44,7 @@ Track the media you want to watch, are watching, have finished, or have dropped.
 | Ratings | Score and review per media item, same upsert semantics |
 | TMDB integration | Import a real movie or show straight from TMDB by ID, including its seasons and episodes |
 | API docs | Swagger UI and an OpenAPI document, development only |
-| Testing | 165 xUnit tests: endpoint logic and TMDB with no database, repository SQL against the real Oracle container |
+| Testing | 260 xUnit tests: endpoint logic and TMDB with no database, repository SQL against the real Oracle container |
 | Secrets handling | Connection string and API key kept out of source control entirely |
 
 ## Tech stack
@@ -265,15 +266,16 @@ There is a real test project, [`MediaTracker.Api.Tests`](MediaTracker.Api.Tests)
 
 | Layer | Approach | Count |
 | --- | --- | --- |
-| Endpoint orchestration | Real routing and real endpoint delegates, every repository and the TMDB service swapped for `NSubstitute` substitutes. No database, no network. | 54 |
-| `TmdbService` | A stubbed `HttpMessageHandler` returns canned JSON, so URL building and deserialization are checked without touching TMDB or the network. | 27 |
-| Repositories | The real Oracle container. `:param` binding, `RETURNING ... INTO`, `MERGE`, `CHECK` constraints and `ON DELETE CASCADE` cannot be honestly verified any other way. | 61 |
+| Endpoint orchestration | Real routing and real endpoint delegates, every repository and the TMDB service swapped for `NSubstitute` substitutes. No database, no network. | 124 |
+| `TmdbService` | A stubbed `HttpMessageHandler` returns canned JSON, so URL building and deserialization are checked without touching TMDB or the network. | 31 |
+| Repositories | The real Oracle container. `:param` binding, `RETURNING ... INTO`, `MERGE`, `CHECK` constraints and `ON DELETE CASCADE` cannot be honestly verified any other way. | 66 |
+| Supporting units | Error mapping, the exception handler, the Oracle health check, media-type parsing, configuration loading, and the integration-test gate. | 39 |
 
 ```bash
-dotnet test                    # 104 tests, integration ones reported as skipped
+dotnet test                    # 193 tests, integration ones reported as skipped
 $env:MEDIATRACKER_TEST_DB = "1"
 docker start media-tracker-db
-dotnet test                    # 165 tests, integration ones execute
+dotnet test                    # 260 tests, integration ones execute
 Remove-Item Env:\MEDIATRACKER_TEST_DB
 ```
 
@@ -281,15 +283,18 @@ Remove-Item Env:\MEDIATRACKER_TEST_DB
 
 If you opt in but have no connection string, the tests fail loudly with the `dotnet user-secrets set` command rather than passing quietly. The test project shares the API project's `UserSecretsId`, so it reads the same secrets store — no second password to configure, and nothing sensitive in the repo.
 
+GitHub Actions runs the build and the no-database suite on every push and pull request. A second job starts an Oracle service container, applies `database/schema.sql`, and runs the repository integration tests with `MEDIATRACKER_TEST_DB=1`; coverage from the first job is uploaded as an artifact.
+
 ```mermaid
 flowchart LR
     subgraph Unit["No database required"]
-        EL["EndpointLogicTests<br/>54 tests"] -->|"NSubstitute"| Fakes["I*Repository substitutes"]
-        TS["TmdbServiceTests<br/>27 tests"] -->|"stub handler"| FakeApi(["Canned TMDB JSON"])
+        EL["Endpoint tests<br/>124 tests"] -->|"NSubstitute"| Fakes["I*Repository substitutes"]
+        TS["TmdbServiceTests<br/>31 tests"] -->|"stub handler"| FakeApi(["Canned TMDB JSON"])
+        OT["Supporting unit tests<br/>39 tests"]
     end
 
     subgraph Integration["MEDIATRACKER_TEST_DB=1"]
-        RI["RepositoryIntegrationTests<br/>61 tests"] -->|"real SQL"| Oracle[("Oracle container")]
+        RI["RepositoryIntegrationTests<br/>66 tests"] -->|"real SQL"| Oracle[("Oracle container")]
     end
 ```
 
