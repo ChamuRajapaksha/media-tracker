@@ -1,0 +1,17 @@
+bin/
+obj/
+**/bin/
+**/obj/
+
+.git/
+.gitignore
+.agents/
+.vs/
+.vscode/
+
+MediaTracker.Api.Tests/
+
+*.user
+.env
+.env.*
+!.env.example
