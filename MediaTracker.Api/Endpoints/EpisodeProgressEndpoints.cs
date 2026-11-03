@@ -27,14 +27,7 @@ public static class EpisodeProgressEndpoints
             // Nothing in the schema ties the URL's ids together, so confirm the chain
             // media -> season -> episode before acting on it. Wrong ids in the URL would
             // otherwise mark progress against one season and update another media's status.
-            var season = await seasonRepo.GetByIdAsync(seasonId);
-            if (season is null || season.MediaId != mediaId)
-            {
-                return Results.NotFound();
-            }
-
-            var episode = await episodeRepo.GetByIdAsync(episodeId);
-            if (episode is null || episode.SeasonId != seasonId)
+            if (!await ChainExistsAsync(mediaId, seasonId, episodeId, seasonRepo, episodeRepo))
             {
                 return Results.NotFound();
             }
@@ -45,7 +38,7 @@ public static class EpisodeProgressEndpoints
             var watchedEpisodes = await episodeRepo.CountWatchedBySeasonIdAsync(seasonId);
             if (totalEpisodes > 0 && watchedEpisodes >= totalEpisodes)
             {
-                await watchStatusRepo.SetStatusAsync(season.MediaId, Completed);
+                await watchStatusRepo.SetStatusAsync(mediaId, Completed);
             }
 
             var progress = await progressRepo.GetByEpisodeIdAsync(episodeId);
@@ -56,8 +49,13 @@ public static class EpisodeProgressEndpoints
         .Produces<EpisodeProgress>(StatusCodes.Status200OK)
         .Produces(StatusCodes.Status404NotFound);
 
-        episodeGroup.MapDelete("/", async (int mediaId, int seasonId, int episodeId, IEpisodeProgressRepository repo) =>
+        episodeGroup.MapDelete("/", async (int mediaId, int seasonId, int episodeId, IEpisodeProgressRepository repo, IEpisodeRepository episodeRepo, ISeasonRepository seasonRepo) =>
         {
+            if (!await ChainExistsAsync(mediaId, seasonId, episodeId, seasonRepo, episodeRepo))
+            {
+                return Results.NotFound();
+            }
+
             var removed = await repo.MarkUnwatchedAsync(episodeId);
             return removed ? Results.NoContent() : Results.NotFound();
         })
@@ -74,5 +72,22 @@ public static class EpisodeProgressEndpoints
         })
         .WithSummary("List watch progress for a season")
         .Produces<List<EpisodeProgress>>(StatusCodes.Status200OK);
+    }
+
+    private static async Task<bool> ChainExistsAsync(
+        int mediaId,
+        int seasonId,
+        int episodeId,
+        ISeasonRepository seasonRepo,
+        IEpisodeRepository episodeRepo)
+    {
+        var season = await seasonRepo.GetByIdAsync(seasonId);
+        if (season is null || season.MediaId != mediaId)
+        {
+            return false;
+        }
+
+        var episode = await episodeRepo.GetByIdAsync(episodeId);
+        return episode is not null && episode.SeasonId == seasonId;
     }
 }

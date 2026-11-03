@@ -245,6 +245,7 @@ public class EndpointLogicTests : IDisposable
     [Fact]
     public async Task Unmarking_an_episode_that_was_never_watched_returns_404()
     {
+        GivenAValidChain();
         _factory.Progress.MarkUnwatchedAsync(3).Returns(false);
 
         var response = await _client.DeleteAsync("/media/1/seasons/2/episodes/3/progress");
@@ -255,6 +256,7 @@ public class EndpointLogicTests : IDisposable
     [Fact]
     public async Task Unmarking_a_watched_episode_returns_no_content()
     {
+        GivenAValidChain();
         _factory.Progress.MarkUnwatchedAsync(3).Returns(true);
 
         var response = await _client.DeleteAsync("/media/1/seasons/2/episodes/3/progress");
@@ -265,6 +267,7 @@ public class EndpointLogicTests : IDisposable
     [Fact]
     public async Task Unmarking_does_not_change_the_watch_status()
     {
+        GivenAValidChain();
         _factory.Progress.MarkUnwatchedAsync(3).Returns(true);
 
         await _client.DeleteAsync("/media/1/seasons/2/episodes/3/progress");
@@ -272,6 +275,52 @@ public class EndpointLogicTests : IDisposable
         // The media stays COMPLETED after an unmark, which the plan records as known Stage A
         // behaviour rather than something this endpoint silently fixes.
         await _factory.WatchStatus.DidNotReceive().SetStatusAsync(Arg.Any<int>(), Arg.Any<string>());
+    }
+
+    [Fact]
+    public async Task Unmarking_returns_404_when_the_season_belongs_to_another_media()
+    {
+        _factory.Seasons.GetByIdAsync(2).Returns(new Season { SeasonId = 2, MediaId = 99, SeasonNumber = 1 });
+
+        var response = await _client.DeleteAsync("/media/1/seasons/2/episodes/3/progress");
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        await _factory.Progress.DidNotReceive().MarkUnwatchedAsync(Arg.Any<int>());
+    }
+
+    [Fact]
+    public async Task Unmarking_returns_404_when_the_season_does_not_exist()
+    {
+        _factory.Seasons.GetByIdAsync(2).Returns((Season?)null);
+
+        var response = await _client.DeleteAsync("/media/1/seasons/2/episodes/3/progress");
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        await _factory.Progress.DidNotReceive().MarkUnwatchedAsync(Arg.Any<int>());
+    }
+
+    [Fact]
+    public async Task Unmarking_returns_404_when_the_episode_belongs_to_another_season()
+    {
+        _factory.Seasons.GetByIdAsync(2).Returns(new Season { SeasonId = 2, MediaId = 1, SeasonNumber = 1 });
+        _factory.Episodes.GetByIdAsync(3).Returns(new Episode { EpisodeId = 3, SeasonId = 77, EpisodeNumber = 1 });
+
+        var response = await _client.DeleteAsync("/media/1/seasons/2/episodes/3/progress");
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        await _factory.Progress.DidNotReceive().MarkUnwatchedAsync(Arg.Any<int>());
+    }
+
+    [Fact]
+    public async Task Unmarking_returns_404_when_the_episode_does_not_exist()
+    {
+        _factory.Seasons.GetByIdAsync(2).Returns(new Season { SeasonId = 2, MediaId = 1, SeasonNumber = 1 });
+        _factory.Episodes.GetByIdAsync(3).Returns((Episode?)null);
+
+        var response = await _client.DeleteAsync("/media/1/seasons/2/episodes/3/progress");
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        await _factory.Progress.DidNotReceive().MarkUnwatchedAsync(Arg.Any<int>());
     }
 
     [Fact]
