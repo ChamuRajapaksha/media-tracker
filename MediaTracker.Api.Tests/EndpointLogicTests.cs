@@ -277,16 +277,67 @@ public class EndpointLogicTests : IDisposable
     }
 
     [Fact]
-    public async Task Unmarking_does_not_change_the_watch_status()
+    public async Task Unmarking_the_last_watched_episode_downgrades_a_completed_show()
     {
         GivenAValidChain();
         _factory.Progress.MarkUnwatchedAsync(3).Returns(true);
+        _factory.WatchStatus.GetByMediaIdAsync(1).Returns(new WatchStatus { MediaId = 1, Status = "COMPLETED" });
+        _factory.Episodes.CountByMediaIdAsync(1).Returns(10);
+        _factory.Episodes.CountWatchedByMediaIdAsync(1).Returns(9);
+
+        var response = await _client.DeleteAsync("/media/1/seasons/2/episodes/3/progress");
+
+        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+        await _factory.WatchStatus.Received(1).SetStatusAsync(1, "WATCHING");
+    }
+
+    [Fact]
+    public async Task Unmarking_leaves_a_show_that_is_still_fully_watched_completed()
+    {
+        GivenAValidChain();
+        _factory.Progress.MarkUnwatchedAsync(3).Returns(true);
+        _factory.WatchStatus.GetByMediaIdAsync(1).Returns(new WatchStatus { MediaId = 1, Status = "COMPLETED" });
+        _factory.Episodes.CountByMediaIdAsync(1).Returns(10);
+        _factory.Episodes.CountWatchedByMediaIdAsync(1).Returns(10);
 
         await _client.DeleteAsync("/media/1/seasons/2/episodes/3/progress");
 
-        // The media stays COMPLETED after an unmark, which the plan records as known Stage A
-        // behaviour rather than something this endpoint silently fixes.
+        // Another copy of the same episode could still be watched, so the counts decide.
         await _factory.WatchStatus.DidNotReceive().SetStatusAsync(Arg.Any<int>(), Arg.Any<string>());
+    }
+
+    [Fact]
+    public async Task Unmarking_does_not_change_a_watching_show()
+    {
+        GivenAValidChain();
+        _factory.Progress.MarkUnwatchedAsync(3).Returns(true);
+        _factory.WatchStatus.GetByMediaIdAsync(1).Returns(new WatchStatus { MediaId = 1, Status = "WATCHING" });
+
+        await _client.DeleteAsync("/media/1/seasons/2/episodes/3/progress");
+
+        await _factory.WatchStatus.DidNotReceive().SetStatusAsync(Arg.Any<int>(), Arg.Any<string>());
+    }
+
+    [Fact]
+    public async Task Unmarking_does_not_change_a_show_without_a_status_row()
+    {
+        GivenAValidChain();
+        _factory.Progress.MarkUnwatchedAsync(3).Returns(true);
+        _factory.WatchStatus.GetByMediaIdAsync(1).Returns((WatchStatus?)null);
+
+        await _client.DeleteAsync("/media/1/seasons/2/episodes/3/progress");
+
+        await _factory.WatchStatus.DidNotReceive().SetStatusAsync(Arg.Any<int>(), Arg.Any<string>());
+    }
+
+    [Fact]
+    public async Task A_rejected_unmark_never_reads_the_watch_status()
+    {
+        _factory.Seasons.GetByIdAsync(2).Returns(new Season { SeasonId = 2, MediaId = 99, SeasonNumber = 1 });
+
+        await _client.DeleteAsync("/media/1/seasons/2/episodes/3/progress");
+
+        await _factory.WatchStatus.DidNotReceive().GetByMediaIdAsync(Arg.Any<int>());
     }
 
     [Fact]

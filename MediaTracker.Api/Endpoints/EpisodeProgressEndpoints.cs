@@ -6,6 +6,7 @@ namespace MediaTracker.Api.Endpoints;
 public static class EpisodeProgressEndpoints
 {
     private const string Completed = "COMPLETED";
+    private const string Watching = "WATCHING";
 
     public static void MapEpisodeProgressEndpoints(this WebApplication app)
     {
@@ -49,7 +50,7 @@ public static class EpisodeProgressEndpoints
         .Produces<EpisodeProgress>(StatusCodes.Status200OK)
         .Produces(StatusCodes.Status404NotFound);
 
-        episodeGroup.MapDelete("/", async (int mediaId, int seasonId, int episodeId, IEpisodeProgressRepository repo, IEpisodeRepository episodeRepo, ISeasonRepository seasonRepo) =>
+        episodeGroup.MapDelete("/", async (int mediaId, int seasonId, int episodeId, IEpisodeProgressRepository repo, IEpisodeRepository episodeRepo, ISeasonRepository seasonRepo, IWatchStatusRepository watchStatusRepo) =>
         {
             if (!await ChainExistsAsync(mediaId, seasonId, episodeId, seasonRepo, episodeRepo))
             {
@@ -57,9 +58,28 @@ public static class EpisodeProgressEndpoints
             }
 
             var removed = await repo.MarkUnwatchedAsync(episodeId);
-            return removed ? Results.NoContent() : Results.NotFound();
+            if (!removed)
+            {
+                return Results.NotFound();
+            }
+
+            // Unmarking the last-watched episode of a finished show makes COMPLETED a lie.
+            // Other statuses are left alone: DROPPED stays dropped, WATCHING is already right.
+            var status = await watchStatusRepo.GetByMediaIdAsync(mediaId);
+            if (status?.Status == Completed)
+            {
+                var totalEpisodes = await episodeRepo.CountByMediaIdAsync(mediaId);
+                var watchedEpisodes = await episodeRepo.CountWatchedByMediaIdAsync(mediaId);
+                if (watchedEpisodes < totalEpisodes)
+                {
+                    await watchStatusRepo.SetStatusAsync(mediaId, Watching);
+                }
+            }
+
+            return Results.NoContent();
         })
         .WithSummary("Mark an episode unwatched")
+        .WithDescription("Validates the media/season/episode chain from the URL, then marks the episode unwatched. Downgrades a COMPLETED show to WATCHING once an episode is unmarked.")
         .Produces(StatusCodes.Status204NoContent)
         .Produces(StatusCodes.Status404NotFound);
 
