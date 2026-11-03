@@ -73,3 +73,10 @@ CREATE TABLE ratings (
     review     VARCHAR2(4000),
     rated_at   DATE DEFAULT SYSDATE NOT NULL
 );
+
+-- One row per TMDB item. Function-based so rows with a NULL tmdb_id stay
+-- unconstrained: Oracle does not index entries whose keys are all NULL.
+CREATE UNIQUE INDEX uq_media_tmdb ON media (
+    CASE WHEN tmdb_id IS NOT NULL THEN media_type END,
+    CASE WHEN tmdb_id IS NOT NULL THEN tmdb_id END
+);
