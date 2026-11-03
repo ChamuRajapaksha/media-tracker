@@ -145,6 +145,7 @@ Schema source: [`database/schema.sql`](database/schema.sql).
 | `DELETE` | `/genres/{id}` | Delete a genre |
 | `POST` | `/tmdb/import?tmdbId=&type=` | Import a movie or show from TMDB as a media row |
 | `POST` | `/tmdb/import-seasons?mediaId=` | Import a show's seasons and episodes from TMDB |
+| `GET` | `/tmdb/search?query=&type=` | Search TMDB for movies or shows |
 
 `type` is `movie` or `tv` on the TMDB route and is translated to the database's `MOVIE`/`SHOW` before insert.
 

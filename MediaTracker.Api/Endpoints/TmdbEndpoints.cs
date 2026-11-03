@@ -1,5 +1,6 @@
 using MediaTracker.Api.Services;
 using MediaTracker.Api.Models;
+using MediaTracker.Api.Models.Tmdb;
 using MediaTracker.Api.Repositories;
 
 namespace MediaTracker.Api.Endpoints;
@@ -13,6 +14,27 @@ public static class TmdbEndpoints
     public static void MapTmdbEndpoints(this WebApplication app)
     {
         var group = app.MapGroup("/tmdb").WithTags("TMDB");
+
+        group.MapGet("/search", async (string? query, string? type, ITmdbService tmdb) =>
+        {
+            if (string.IsNullOrWhiteSpace(query))
+            {
+                return Results.BadRequest("The query parameter must not be blank.");
+            }
+
+            if (!TmdbMediaType.TryParse(type, out _))
+            {
+                return Results.BadRequest("The type parameter must be movie or tv.");
+            }
+
+            var results = await tmdb.SearchAsync(query, type!);
+            return Results.Ok(results);
+        })
+        .WithSummary("Search TMDB for movies or shows")
+        .WithDescription("Searches TMDB by text. Use type=movie or type=tv.")
+        .Produces<List<TmdbSearchResult>>(StatusCodes.Status200OK)
+        .ProducesProblem(StatusCodes.Status400BadRequest);
+
         group.MapPost("/import", async (int tmdbId, string type, ITmdbService tmdb, IMediaRepository mediaRepo) =>
         {
             if (!TmdbMediaType.TryParse(type, out var mediaType))

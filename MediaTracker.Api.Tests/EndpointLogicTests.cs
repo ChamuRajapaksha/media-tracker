@@ -1122,6 +1122,72 @@ public class EndpointLogicTests : IDisposable
     }
 
     [Fact]
+    public async Task Searching_tmdb_returns_the_service_results()
+    {
+        _factory.Tmdb.SearchAsync("severance", "tv").Returns(
+        [
+            new TmdbSearchResult { Id = 95396, Name = "Severance" },
+            new TmdbSearchResult { Id = 1234, Name = "Severance (Other)" }
+        ]);
+
+        var response = await _client.GetAsync("/tmdb/search?query=severance&type=tv");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var results = await response.Content.ReadFromJsonAsync<List<TmdbSearchResult>>();
+        Assert.Equal([95396, 1234], results?.Select(result => result.Id));
+    }
+
+    [Fact]
+    public async Task Searching_tmdb_passes_the_query_and_type_through()
+    {
+        _factory.Tmdb.SearchAsync(Arg.Any<string>(), Arg.Any<string>()).Returns([]);
+
+        await _client.GetAsync("/tmdb/search?query=the%20office&type=movie");
+
+        // The service decides which TMDB path to hit, so the route hands it the raw pair.
+        await _factory.Tmdb.Received(1).SearchAsync("the office", "movie");
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("query=")]
+    [InlineData("query=%20%20")]
+    public async Task Searching_tmdb_with_a_blank_query_returns_400(string queryString)
+    {
+        var response = await _client.GetAsync($"/tmdb/search?{queryString}&type=movie");
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        await _factory.Tmdb.DidNotReceive().SearchAsync(Arg.Any<string>(), Arg.Any<string>());
+    }
+
+    [Fact]
+    public async Task Searching_tmdb_without_a_query_returns_400()
+    {
+        var response = await _client.GetAsync("/tmdb/search?type=movie");
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        await _factory.Tmdb.DidNotReceive().SearchAsync(Arg.Any<string>(), Arg.Any<string>());
+    }
+
+    [Fact]
+    public async Task Searching_tmdb_with_an_unknown_type_returns_400()
+    {
+        var response = await _client.GetAsync("/tmdb/search?query=severance&type=book");
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        await _factory.Tmdb.DidNotReceive().SearchAsync(Arg.Any<string>(), Arg.Any<string>());
+    }
+
+    [Fact]
+    public async Task Searching_tmdb_without_a_type_returns_400()
+    {
+        var response = await _client.GetAsync("/tmdb/search?query=severance");
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        await _factory.Tmdb.DidNotReceive().SearchAsync(Arg.Any<string>(), Arg.Any<string>());
+    }
+
+    [Fact]
     public async Task Importing_a_movie_stores_the_movie_media_type()
     {
         GivenTmdbDetails(new TmdbSearchResult { Id = 1396, Title = "Fight Club", ReleaseDate = "1999-10-15" });
