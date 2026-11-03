@@ -1,0 +1,3 @@
+# Keep shell scripts LF so they still run when the repo is checked out on Windows
+# and bind-mounted into a Linux container.
+*.sh text eol=lf

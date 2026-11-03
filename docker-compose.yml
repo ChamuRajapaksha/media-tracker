@@ -1,0 +1,38 @@
+services:
+  db:
+    image: gvenzl/oracle-free:23-slim
+    container_name: media-tracker-db
+    environment:
+      ORACLE_PASSWORD: ${ORACLE_PASSWORD}
+      APP_USER: media_app
+      APP_USER_PASSWORD: ${APP_USER_PASSWORD}
+    ports:
+      - "1521:1521"
+    volumes:
+      - oracle-data:/opt/oracle/oradata
+      - ./database/schema.sql:/opt/media-tracker/schema.sql:ro
+      - ./database/docker-init.sh:/container-entrypoint-initdb.d/010-schema.sh:ro
+    healthcheck:
+      test: ["CMD", "healthcheck.sh"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 180s
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: media-tracker-api
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "5165:8080"
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      ConnectionStrings__OracleDb: "User Id=media_app;Password=${APP_USER_PASSWORD};Data Source=db:1521/FREEPDB1"
+      Tmdb__ApiKey: ${TMDB_API_KEY}
+
+volumes:
+  oracle-data:
