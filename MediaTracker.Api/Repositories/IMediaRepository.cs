@@ -6,6 +6,7 @@ public interface IMediaRepository
 {
     Task<IEnumerable<Media>> GetAllAsync();
     Task<Media?> GetByIdAsync(int id);
+    Task<Media?> GetByTmdbIdAsync(int tmdbId, string mediaType);
     Task<int> AddAsync(Media media);
     Task AddGenreAsync(int mediaId, int genreId);
     Task<IEnumerable<Genre>> GetGenresForMediaAsync(int mediaId);

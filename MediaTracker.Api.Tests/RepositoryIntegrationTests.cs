@@ -65,13 +65,14 @@ public class RepositoryIntegrationTests : IClassFixture<MediaApiFactory>, IAsync
         return media;
     }
 
-    private async Task<Media> AddMediaAsync(string title, string mediaType = "MOVIE", int? releaseYear = null)
+    private async Task<Media> AddMediaAsync(string title, string mediaType = "MOVIE", int? releaseYear = null, int? tmdbId = null)
     {
         var media = new Media
         {
             Title = Marker + title,
             MediaType = mediaType,
-            ReleaseYear = releaseYear
+            ReleaseYear = releaseYear,
+            TmdbId = tmdbId
         };
 
         media.MediaId = await Media.AddAsync(media);
@@ -259,6 +260,33 @@ public class RepositoryIntegrationTests : IClassFixture<MediaApiFactory>, IAsync
     public async Task Reading_an_unknown_media_id_returns_null()
     {
         Assert.Null(await Media.GetByIdAsync(-1));
+    }
+
+    [IntegrationFact]
+    public async Task Reading_media_by_tmdb_id_returns_the_row()
+    {
+        var media = await AddMediaAsync("tmdb-lookup", "SHOW", tmdbId: 95396);
+
+        var found = await Media.GetByTmdbIdAsync(95396, "SHOW");
+
+        Assert.NotNull(found);
+        Assert.Equal(media.MediaId, found!.MediaId);
+        Assert.Equal(Marker + "tmdb-lookup", found.Title);
+        Assert.Equal(95396, found.TmdbId);
+    }
+
+    [IntegrationFact]
+    public async Task Reading_media_by_tmdb_id_is_scoped_to_the_media_type()
+    {
+        await AddMediaAsync("tmdb-lookup-scoped", "MOVIE", tmdbId: 424242);
+
+        Assert.Null(await Media.GetByTmdbIdAsync(424242, "SHOW"));
+    }
+
+    [IntegrationFact]
+    public async Task Reading_an_unknown_tmdb_id_returns_null()
+    {
+        Assert.Null(await Media.GetByTmdbIdAsync(-1, "MOVIE"));
     }
 
     [IntegrationFact]

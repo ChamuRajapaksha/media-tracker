@@ -33,6 +33,16 @@ public class MediaRepository : IMediaRepository
         return await connection.QueryFirstOrDefaultAsync<Media>(sql, new { Id = id });
     }
 
+    public async Task<Media?> GetByTmdbIdAsync(int tmdbId, string mediaType)
+    {
+        using var connection = new OracleConnection(_connectionString);
+        var sql = @"SELECT media_id AS MediaId, title AS Title, media_type AS MediaType,
+                           release_year AS ReleaseYear, overview AS Overview,
+                           poster_url AS PosterUrl, tmdb_id AS TmdbId, created_at AS CreatedAt
+                    FROM media WHERE tmdb_id = :TmdbId AND media_type = :MediaType";
+        return await connection.QueryFirstOrDefaultAsync<Media>(sql, new { TmdbId = tmdbId, MediaType = mediaType });
+    }
+
     public async Task<int> AddAsync(Media media)
     {
         using var connection = new OracleConnection(_connectionString);
