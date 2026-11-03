@@ -4,11 +4,13 @@ using MediaTracker.Api.Repositories;
 using MediaTracker.Api.Endpoints;
 using MediaTracker.Api.Infrastructure;
 using MediaTracker.Api.Services;
+using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.OpenApi;
 var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddProblemDetails();
 builder.Services.AddValidation();
-builder.Services.AddHealthChecks();
+builder.Services.AddHealthChecks()
+    .AddCheck<OracleHealthCheck>("oracle", tags: ["ready"]);
 builder.Services.AddExceptionHandler<OracleExceptionHandler>();
 builder.Services.AddScoped<IMediaRepository, MediaRepository>();
 builder.Services.AddScoped<IGenreRepository, GenreRepository>();
@@ -65,7 +67,14 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI();
 }
 
-app.MapHealthChecks("/health");
+app.MapHealthChecks("/health", new HealthCheckOptions
+{
+    Predicate = _ => false
+});
+app.MapHealthChecks("/health/ready", new HealthCheckOptions
+{
+    Predicate = check => check.Tags.Contains("ready")
+});
 
 app.MapMediaEndpoints();
 app.MapGenreEndpoints();
