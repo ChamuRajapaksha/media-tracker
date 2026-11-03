@@ -69,6 +69,27 @@ public class EpisodeRepository : IEpisodeRepository
         return await connection.ExecuteScalarAsync<int>(sql, new { SeasonId = seasonId });
     }
 
+    public async Task<int> CountByMediaIdAsync(int mediaId)
+    {
+        using var connection = new OracleConnection(_connectionString);
+        var sql = @"SELECT COUNT(*)
+                     FROM episodes e
+                     JOIN seasons s ON s.season_id = e.season_id
+                     WHERE s.media_id = :MediaId";
+        return await connection.ExecuteScalarAsync<int>(sql, new { MediaId = mediaId });
+    }
+
+    public async Task<int> CountWatchedByMediaIdAsync(int mediaId)
+    {
+        using var connection = new OracleConnection(_connectionString);
+        var sql = @"SELECT COUNT(*)
+                     FROM episodes e
+                     JOIN seasons s ON s.season_id = e.season_id
+                     JOIN episode_progress ep ON ep.episode_id = e.episode_id
+                     WHERE s.media_id = :MediaId";
+        return await connection.ExecuteScalarAsync<int>(sql, new { MediaId = mediaId });
+    }
+
     public async Task<bool> DeleteAsync(int episodeId)
     {
         // The episode_progress row cascades from here.

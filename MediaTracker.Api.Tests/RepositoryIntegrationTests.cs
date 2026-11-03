@@ -689,6 +689,39 @@ public class RepositoryIntegrationTests : IClassFixture<MediaApiFactory>, IAsync
     }
 
     [IntegrationFact]
+    public async Task Counting_a_show_counts_episodes_across_every_season()
+    {
+        var media = await AddMediaAsync("show-count", "SHOW");
+        var first = await AddSeasonAsync(media.MediaId, 1);
+        var second = await AddSeasonAsync(media.MediaId, 2);
+        var one = await AddEpisodeAsync(first.SeasonId, 1);
+        await AddEpisodeAsync(first.SeasonId, 2);
+        await AddEpisodeAsync(second.SeasonId, 1);
+
+        Assert.Equal(3, await Episodes.CountByMediaIdAsync(media.MediaId));
+        Assert.Equal(0, await Episodes.CountWatchedByMediaIdAsync(media.MediaId));
+
+        await Progress.MarkWatchedAsync(one.EpisodeId);
+
+        Assert.Equal(1, await Episodes.CountWatchedByMediaIdAsync(media.MediaId));
+    }
+
+    [IntegrationFact]
+    public async Task Counting_a_show_does_not_include_another_shows_episodes()
+    {
+        var counted = await AddMediaAsync("show-count-scoped", "SHOW");
+        var other = await AddMediaAsync("show-count-other", "SHOW");
+        var countedSeason = await AddSeasonAsync(counted.MediaId, 1);
+        var otherSeason = await AddSeasonAsync(other.MediaId, 1);
+        await AddEpisodeAsync(countedSeason.SeasonId, 1);
+        var otherEpisode = await AddEpisodeAsync(otherSeason.SeasonId, 1);
+        await Progress.MarkWatchedAsync(otherEpisode.EpisodeId);
+
+        Assert.Equal(1, await Episodes.CountByMediaIdAsync(counted.MediaId));
+        Assert.Equal(0, await Episodes.CountWatchedByMediaIdAsync(counted.MediaId));
+    }
+
+    [IntegrationFact]
     public async Task Upserting_a_new_season_inserts_it_and_returns_the_id()
     {
         var media = await AddMediaAsync("season-upsert-insert", "SHOW");
