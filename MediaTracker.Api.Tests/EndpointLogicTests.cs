@@ -1188,6 +1188,65 @@ public class EndpointLogicTests : IDisposable
     }
 
     [Fact]
+    public async Task Importing_an_existing_tmdb_item_returns_ok_and_refreshes_it()
+    {
+        GivenTmdbDetails(new TmdbSearchResult
+        {
+            Id = 1396,
+            Title = "Fight Club (refreshed)",
+            Overview = "New overview",
+            PosterPath = "/new-poster.jpg",
+            ReleaseDate = "1999-10-15"
+        });
+        _factory.Media.GetByTmdbIdAsync(1396, "MOVIE").Returns(new Media
+        {
+            MediaId = 11,
+            Title = "Fight Club",
+            MediaType = "MOVIE",
+            TmdbId = 1396
+        });
+        _factory.Media.UpdateAsync(Arg.Any<Media>()).Returns(true);
+        _factory.Media.GetByIdAsync(11).Returns(new Media { MediaId = 11, Title = "Fight Club (refreshed)" });
+
+        var response = await _client.PostAsync("/tmdb/import?tmdbId=1396&type=movie", null);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        await _factory.Media.Received(1).UpdateAsync(Arg.Is<Media>(media =>
+            media.MediaId == 11
+            && media.Title == "Fight Club (refreshed)"
+            && media.Overview == "New overview"
+            && media.PosterUrl == "https://image.tmdb.org/t/p/w500/new-poster.jpg"
+            && media.ReleaseYear == 1999));
+        await _factory.Media.DidNotReceive().AddAsync(Arg.Any<Media>());
+    }
+
+    [Fact]
+    public async Task Importing_a_new_tmdb_item_still_returns_created()
+    {
+        GivenTmdbDetails(new TmdbSearchResult { Id = 1396, Title = "Fight Club" });
+        _factory.Media.GetByTmdbIdAsync(1396, "MOVIE").Returns((Media?)null);
+        _factory.Media.AddAsync(Arg.Any<Media>()).Returns(11);
+        GivenCreatedMedia(11);
+
+        var response = await _client.PostAsync("/tmdb/import?tmdbId=1396&type=movie", null);
+
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        await _factory.Media.Received(1).AddAsync(Arg.Any<Media>());
+        await _factory.Media.DidNotReceive().UpdateAsync(Arg.Any<Media>());
+    }
+
+    [Fact]
+    public async Task The_existing_lookup_uses_the_translated_media_type()
+    {
+        GivenTmdbDetails(new TmdbSearchResult { Id = 95396, Name = "Severance" });
+
+        await _client.PostAsync("/tmdb/import?tmdbId=95396&type=tv", null);
+
+        // The database stores SHOW, so the dedupe lookup has to ask in that vocabulary.
+        await _factory.Media.Received(1).GetByTmdbIdAsync(95396, "SHOW");
+    }
+
+    [Fact]
     public async Task Importing_a_movie_stores_the_movie_media_type()
     {
         GivenTmdbDetails(new TmdbSearchResult { Id = 1396, Title = "Fight Club", ReleaseDate = "1999-10-15" });

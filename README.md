@@ -147,7 +147,7 @@ Schema source: [`database/schema.sql`](database/schema.sql).
 | `POST` | `/tmdb/import-seasons?mediaId=` | Import a show's seasons and episodes from TMDB |
 | `GET` | `/tmdb/search?query=&type=` | Search TMDB for movies or shows |
 
-`type` is `movie` or `tv` on the TMDB route and is translated to the database's `MOVIE`/`SHOW` before insert.
+`type` is `movie` or `tv` on the TMDB route and is translated to the database's `MOVIE`/`SHOW` before insert. Importing the same `(type, tmdbId)` twice is idempotent: the second call refreshes the existing row and returns `200 OK` instead of creating a duplicate.
 
 ## Oracle specifics
 

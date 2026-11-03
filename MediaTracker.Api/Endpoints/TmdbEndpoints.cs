@@ -65,12 +65,24 @@ public static class TmdbEndpoints
                 TmdbId = details.Id
             };
 
+            // Importing the same TMDB item twice refreshes the row it created the first time
+            // instead of adding a second copy that only differs by media_id.
+            var existing = await mediaRepo.GetByTmdbIdAsync(details.Id, mediaType);
+            if (existing is not null)
+            {
+                media.MediaId = existing.MediaId;
+                await mediaRepo.UpdateAsync(media);
+                var refreshed = await mediaRepo.GetByIdAsync(existing.MediaId);
+                return Results.Ok(refreshed);
+            }
+
             var newId = await mediaRepo.AddAsync(media);
             var created = await mediaRepo.GetByIdAsync(newId);
             return Results.Created($"/media/{newId}", created);
         })
         .WithSummary("Import a movie or show from TMDB")
-        .WithDescription("Fetches details from TMDB and creates a media row. Use type=movie or type=tv; the value is translated to the DB's MOVIE/SHOW.")
+        .WithDescription("Fetches details from TMDB and creates a media row, or refreshes the existing row for the same type and TMDB id. Use type=movie or type=tv; the value is translated to the DB's MOVIE/SHOW.")
+        .Produces<Media>(StatusCodes.Status200OK)
         .Produces<Media>(StatusCodes.Status201Created)
         .Produces(StatusCodes.Status404NotFound)
         .ProducesProblem(StatusCodes.Status400BadRequest);
