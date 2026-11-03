@@ -21,16 +21,29 @@ public static class EpisodeEndpoints
     {
         var group = app.MapGroup("/media/{mediaId}/seasons/{seasonId}/episodes").WithTags("Episodes");
 
-        group.MapGet("/", async (int mediaId, int seasonId, IEpisodeRepository repo) =>
+        group.MapGet("/", async (int mediaId, int seasonId, IEpisodeRepository repo, ISeasonRepository seasonRepo) =>
         {
+            var season = await seasonRepo.GetByIdAsync(seasonId);
+            if (season is null || season.MediaId != mediaId)
+            {
+                return Results.NotFound();
+            }
+
             var episodes = await repo.GetBySeasonIdAsync(seasonId);
             return Results.Ok(episodes);
         })
         .WithSummary("List the episodes of a season")
-        .Produces<List<Episode>>(StatusCodes.Status200OK);
+        .Produces<List<Episode>>(StatusCodes.Status200OK)
+        .Produces(StatusCodes.Status404NotFound);
 
-        group.MapPost("/", async (int mediaId, int seasonId, EpisodeCreateRequest request, IEpisodeRepository repo) =>
+        group.MapPost("/", async (int mediaId, int seasonId, EpisodeCreateRequest request, IEpisodeRepository repo, ISeasonRepository seasonRepo) =>
         {
+            var season = await seasonRepo.GetByIdAsync(seasonId);
+            if (season is null || season.MediaId != mediaId)
+            {
+                return Results.NotFound();
+            }
+
             var episode = new Episode
             {
                 SeasonId = seasonId,
@@ -45,10 +58,17 @@ public static class EpisodeEndpoints
         })
         .WithSummary("Add an episode to a season")
         .Produces<Episode>(StatusCodes.Status201Created)
+        .Produces(StatusCodes.Status404NotFound)
         .ProducesValidationProblem();
 
         group.MapDelete("/{episodeId}", async (int mediaId, int seasonId, int episodeId, IEpisodeRepository repo) =>
         {
+            var episode = await repo.GetByIdAsync(episodeId);
+            if (episode is null || episode.SeasonId != seasonId)
+            {
+                return Results.NotFound();
+            }
+
             var removed = await repo.DeleteAsync(episodeId);
             return removed ? Results.NoContent() : Results.NotFound();
         })

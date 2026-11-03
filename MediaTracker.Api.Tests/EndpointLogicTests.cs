@@ -672,8 +672,48 @@ public class EndpointLogicTests : IDisposable
     }
 
     [Fact]
+    public async Task Listing_episodes_returns_the_seasons_rows()
+    {
+        GivenASeasonFor(42, 2);
+        _factory.Episodes.GetBySeasonIdAsync(2).Returns(
+        [
+            new Episode { EpisodeId = 9, SeasonId = 2, EpisodeNumber = 1 },
+            new Episode { EpisodeId = 10, SeasonId = 2, EpisodeNumber = 2 }
+        ]);
+
+        var response = await _client.GetAsync("/media/42/seasons/2/episodes");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var episodes = await response.Content.ReadFromJsonAsync<List<Episode>>();
+        Assert.Equal([1, 2], episodes?.Select(episode => episode.EpisodeNumber));
+    }
+
+    [Fact]
+    public async Task Listing_episodes_for_a_season_that_belongs_to_another_media_returns_404()
+    {
+        _factory.Seasons.GetByIdAsync(2).Returns(new Season { SeasonId = 2, MediaId = 99, SeasonNumber = 1 });
+
+        var response = await _client.GetAsync("/media/42/seasons/2/episodes");
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        await _factory.Episodes.DidNotReceive().GetBySeasonIdAsync(Arg.Any<int>());
+    }
+
+    [Fact]
+    public async Task Listing_episodes_for_an_unknown_season_returns_404()
+    {
+        _factory.Seasons.GetByIdAsync(2).Returns((Season?)null);
+
+        var response = await _client.GetAsync("/media/42/seasons/2/episodes");
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        await _factory.Episodes.DidNotReceive().GetBySeasonIdAsync(Arg.Any<int>());
+    }
+
+    [Fact]
     public async Task Creating_an_episode_maps_the_route_and_request_onto_the_model()
     {
+        GivenASeasonFor(42, 2);
         _factory.Episodes.AddAsync(Arg.Any<Episode>()).Returns(9);
         _factory.Episodes.GetByIdAsync(9).Returns(new Episode
         {
@@ -699,6 +739,7 @@ public class EndpointLogicTests : IDisposable
     [Fact]
     public async Task Creating_an_episode_without_an_air_date_stores_null()
     {
+        GivenASeasonFor(42, 2);
         _factory.Episodes.AddAsync(Arg.Any<Episode>()).Returns(9);
         _factory.Episodes.GetByIdAsync(9).Returns(new Episode { EpisodeId = 9, SeasonId = 2 });
 
@@ -728,6 +769,62 @@ public class EndpointLogicTests : IDisposable
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
         await _factory.Episodes.DidNotReceive().AddAsync(Arg.Any<Episode>());
+    }
+
+    [Fact]
+    public async Task Creating_an_episode_for_a_season_that_belongs_to_another_media_returns_404()
+    {
+        _factory.Seasons.GetByIdAsync(2).Returns(new Season { SeasonId = 2, MediaId = 99, SeasonNumber = 1 });
+
+        var response = await _client.PostAsync("/media/42/seasons/2/episodes", EpisodeRequest());
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        await _factory.Episodes.DidNotReceive().AddAsync(Arg.Any<Episode>());
+    }
+
+    [Fact]
+    public async Task Creating_an_episode_for_an_unknown_season_returns_404()
+    {
+        _factory.Seasons.GetByIdAsync(2).Returns((Season?)null);
+
+        var response = await _client.PostAsync("/media/42/seasons/2/episodes", EpisodeRequest());
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        await _factory.Episodes.DidNotReceive().AddAsync(Arg.Any<Episode>());
+    }
+
+    [Fact]
+    public async Task Deleting_an_episode_that_belongs_to_another_season_returns_404()
+    {
+        _factory.Episodes.GetByIdAsync(9).Returns(new Episode { EpisodeId = 9, SeasonId = 77, EpisodeNumber = 1 });
+
+        var response = await _client.DeleteAsync("/media/42/seasons/2/episodes/9");
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        await _factory.Episodes.DidNotReceive().DeleteAsync(Arg.Any<int>());
+    }
+
+    [Fact]
+    public async Task Deleting_an_unknown_episode_returns_404()
+    {
+        _factory.Episodes.GetByIdAsync(9).Returns((Episode?)null);
+
+        var response = await _client.DeleteAsync("/media/42/seasons/2/episodes/9");
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        await _factory.Episodes.DidNotReceive().DeleteAsync(Arg.Any<int>());
+    }
+
+    [Fact]
+    public async Task Deleting_an_episode_that_belongs_to_the_season_returns_no_content()
+    {
+        _factory.Episodes.GetByIdAsync(9).Returns(new Episode { EpisodeId = 9, SeasonId = 2, EpisodeNumber = 1 });
+        _factory.Episodes.DeleteAsync(9).Returns(true);
+
+        var response = await _client.DeleteAsync("/media/42/seasons/2/episodes/9");
+
+        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+        await _factory.Episodes.Received(1).DeleteAsync(9);
     }
 
     [Theory]
@@ -1356,6 +1453,10 @@ public class EndpointLogicTests : IDisposable
         _factory.Seasons.GetByIdAsync(2).Returns(new Season { SeasonId = 2, MediaId = 1, SeasonNumber = 1 });
         _factory.Episodes.GetByIdAsync(3).Returns(new Episode { EpisodeId = 3, SeasonId = 2, EpisodeNumber = 1 });
     }
+
+    private void GivenASeasonFor(int mediaId, int seasonId) =>
+        _factory.Seasons.GetByIdAsync(seasonId)
+            .Returns(new Season { SeasonId = seasonId, MediaId = mediaId, SeasonNumber = 1 });
 
     private void GivenSeasonCounts(int total, int watched)
     {
