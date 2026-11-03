@@ -34,8 +34,8 @@ public static class EpisodeProgressEndpoints
 
             await progressRepo.MarkWatchedAsync(episodeId);
 
-            var totalEpisodes = await episodeRepo.CountBySeasonIdAsync(seasonId);
-            var watchedEpisodes = await episodeRepo.CountWatchedBySeasonIdAsync(seasonId);
+            var totalEpisodes = await episodeRepo.CountByMediaIdAsync(mediaId);
+            var watchedEpisodes = await episodeRepo.CountWatchedByMediaIdAsync(mediaId);
             if (totalEpisodes > 0 && watchedEpisodes >= totalEpisodes)
             {
                 await watchStatusRepo.SetStatusAsync(mediaId, Completed);
@@ -45,7 +45,7 @@ public static class EpisodeProgressEndpoints
             return Results.Ok(progress);
         })
         .WithSummary("Mark an episode watched")
-        .WithDescription("Validates the media/season/episode chain from the URL, then marks the episode watched. Auto-completes the parent show's watch status when this was the last unwatched episode of the season.")
+        .WithDescription("Validates the media/season/episode chain from the URL, then marks the episode watched. Auto-completes the show's watch status only once every episode of every season is watched.")
         .Produces<EpisodeProgress>(StatusCodes.Status200OK)
         .Produces(StatusCodes.Status404NotFound);
 

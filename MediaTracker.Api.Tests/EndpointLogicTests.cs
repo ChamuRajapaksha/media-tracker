@@ -145,7 +145,7 @@ public class EndpointLogicTests : IDisposable
     public async Task Watching_the_final_episode_completes_the_media()
     {
         GivenAValidChain();
-        GivenSeasonCounts(total: 10, watched: 10);
+        GivenShowCounts(total: 10, watched: 10);
 
         var response = await _client.PutAsync("/media/1/seasons/2/episodes/3/progress", null);
 
@@ -158,8 +158,8 @@ public class EndpointLogicTests : IDisposable
     {
         _factory.Seasons.GetByIdAsync(5).Returns(new Season { SeasonId = 5, MediaId = 42, SeasonNumber = 3 });
         _factory.Episodes.GetByIdAsync(6).Returns(new Episode { EpisodeId = 6, SeasonId = 5, EpisodeNumber = 1 });
-        _factory.Episodes.CountBySeasonIdAsync(5).Returns(1);
-        _factory.Episodes.CountWatchedBySeasonIdAsync(5).Returns(1);
+        _factory.Episodes.CountByMediaIdAsync(42).Returns(1);
+        _factory.Episodes.CountWatchedByMediaIdAsync(42).Returns(1);
 
         await _client.PutAsync("/media/42/seasons/5/episodes/6/progress", null);
 
@@ -168,22 +168,34 @@ public class EndpointLogicTests : IDisposable
     }
 
     [Fact]
-    public async Task Completing_a_season_reads_both_counts()
+    public async Task Completing_the_show_reads_both_whole_show_counts()
     {
         GivenAValidChain();
-        GivenSeasonCounts(total: 10, watched: 10);
+        GivenShowCounts(total: 10, watched: 10);
 
         await _client.PutAsync("/media/1/seasons/2/episodes/3/progress", null);
 
-        await _factory.Episodes.Received(1).CountBySeasonIdAsync(2);
-        await _factory.Episodes.Received(1).CountWatchedBySeasonIdAsync(2);
+        await _factory.Episodes.Received(1).CountByMediaIdAsync(1);
+        await _factory.Episodes.Received(1).CountWatchedByMediaIdAsync(1);
     }
 
     [Fact]
-    public async Task Completing_a_season_happens_before_the_response_is_read()
+    public async Task A_finished_season_does_not_complete_a_show_with_another_season_left()
     {
         GivenAValidChain();
-        GivenSeasonCounts(total: 10, watched: 10);
+        GivenShowCounts(total: 20, watched: 10);
+
+        await _client.PutAsync("/media/1/seasons/2/episodes/3/progress", null);
+
+        // Ten watched of twenty is every episode of this season but not of the show.
+        await _factory.WatchStatus.DidNotReceive().SetStatusAsync(Arg.Any<int>(), Arg.Any<string>());
+    }
+
+    [Fact]
+    public async Task Completing_the_show_happens_before_the_response_is_read()
+    {
+        GivenAValidChain();
+        GivenShowCounts(total: 10, watched: 10);
 
         await _client.PutAsync("/media/1/seasons/2/episodes/3/progress", null);
 
@@ -199,7 +211,7 @@ public class EndpointLogicTests : IDisposable
     public async Task Watching_mid_season_leaves_the_status_alone()
     {
         GivenAValidChain();
-        GivenSeasonCounts(total: 10, watched: 4);
+        GivenShowCounts(total: 10, watched: 4);
 
         var response = await _client.PutAsync("/media/1/seasons/2/episodes/3/progress", null);
 
@@ -211,7 +223,7 @@ public class EndpointLogicTests : IDisposable
     public async Task Watching_the_second_to_last_episode_leaves_the_status_alone()
     {
         GivenAValidChain();
-        GivenSeasonCounts(total: 10, watched: 9);
+        GivenShowCounts(total: 10, watched: 9);
 
         await _client.PutAsync("/media/1/seasons/2/episodes/3/progress", null);
 
@@ -219,15 +231,15 @@ public class EndpointLogicTests : IDisposable
     }
 
     [Fact]
-    public async Task An_empty_season_is_never_treated_as_complete()
+    public async Task An_empty_show_is_never_treated_as_complete()
     {
         GivenAValidChain();
-        GivenSeasonCounts(total: 0, watched: 0);
+        GivenShowCounts(total: 0, watched: 0);
 
         await _client.PutAsync("/media/1/seasons/2/episodes/3/progress", null);
 
         // Zero of zero is complete by a naive watched >= total. Dividing by it, or letting a
-        // season with no episodes imported yet finish the show, would both be wrong.
+        // show with no episodes imported yet finish, would both be wrong.
         await _factory.WatchStatus.DidNotReceive().SetStatusAsync(Arg.Any<int>(), Arg.Any<string>());
     }
 
@@ -235,7 +247,7 @@ public class EndpointLogicTests : IDisposable
     public async Task The_episode_is_still_marked_watched_when_the_status_is_not_changed()
     {
         GivenAValidChain();
-        GivenSeasonCounts(total: 10, watched: 4);
+        GivenShowCounts(total: 10, watched: 4);
 
         await _client.PutAsync("/media/1/seasons/2/episodes/3/progress", null);
 
@@ -1507,9 +1519,9 @@ public class EndpointLogicTests : IDisposable
         _factory.Seasons.GetByIdAsync(seasonId)
             .Returns(new Season { SeasonId = seasonId, MediaId = mediaId, SeasonNumber = 1 });
 
-    private void GivenSeasonCounts(int total, int watched)
+    private void GivenShowCounts(int total, int watched)
     {
-        _factory.Episodes.CountBySeasonIdAsync(2).Returns(total);
-        _factory.Episodes.CountWatchedBySeasonIdAsync(2).Returns(watched);
+        _factory.Episodes.CountByMediaIdAsync(1).Returns(total);
+        _factory.Episodes.CountWatchedByMediaIdAsync(1).Returns(watched);
     }
 }
