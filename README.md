@@ -39,7 +39,7 @@ Track the media you want to watch, are watching, have finished, or have dropped.
 | Media library | Create, browse, update and delete movies and shows; many-to-many genre tagging |
 | Shows | Nested seasons and episodes, addressed as real REST resources |
 | Progress tracking | Per-media watch status, upserted in a single database call |
-| Episode progress | Mark individual episodes watched or unwatched; completing a season auto-completes the show |
+| Episode progress | Mark individual episodes watched or unwatched; a show becomes `COMPLETED` only when every episode of every season is watched |
 | Ratings | Score and review per media item, same upsert semantics |
 | TMDB integration | Import a real movie or show straight from TMDB by ID, including its seasons and episodes |
 | API docs | Swagger UI and an OpenAPI document, development only |
@@ -148,6 +148,34 @@ Schema source: [`database/schema.sql`](database/schema.sql).
 | `GET` | `/tmdb/search?query=&type=` | Search TMDB for movies or shows |
 
 `type` is `movie` or `tv` on the TMDB route and is translated to the database's `MOVIE`/`SHOW` before insert. Importing the same `(type, tmdbId)` twice is idempotent: the second call refreshes the existing row and returns `200 OK` instead of creating a duplicate.
+
+### Validation and error responses
+
+Request bodies bind to dedicated request records, so fields such as `mediaId` and `createdAt` cannot be set by a caller. Validation runs before the endpoint delegate and returns `400` with a `ValidationProblemDetails` body.
+
+| Endpoint | Rules |
+| --- | --- |
+| `POST`/`PUT` `/media` | `title` required, max 255; `mediaType` is `MOVIE` or `SHOW`; `releaseYear` 1888-2100; `overview` max 4000; `posterUrl` max 500 |
+| `POST` `/genres` | `name` required, max 50 |
+| `POST` `/media/{mediaId}/seasons` | `seasonNumber` >= 0; `title` max 255 |
+| `POST` `/media/{mediaId}/seasons/{seasonId}/episodes` | `episodeNumber` >= 0; `title` max 255; `airDate` is an ISO date |
+| `PUT` `/media/{mediaId}/watch-status` | `status` is `PLAN_TO_WATCH`, `WATCHING`, `COMPLETED`, or `DROPPED` |
+| `PUT` `/media/{mediaId}/rating` | `score` 0-10 (optional); `review` max 4000 |
+| `GET` `/tmdb/search` | `query` non-blank; `type` is `movie` or `tv` |
+| `POST` `/tmdb/import` | `type` is `movie` or `tv` |
+
+Nested routes verify the chain in the URL rather than trusting the ids independently. A season must belong to the media, an episode must belong to the season, and progress must belong to both; a mismatch is `404`, not an Oracle foreign-key `500`.
+
+Oracle constraint violations are translated by a single `IExceptionHandler`: `ORA-00001` becomes `409 Conflict`, check/null/length/foreign-key violations become `400`, and anything else becomes `500`. The response is `ProblemDetails` with a correlation id that matches the server log; SQL text and Oracle messages never reach the client.
+
+| Status | Meaning here |
+| --- | --- |
+| `400` | Request validation failed, or the database rejected a value |
+| `404` | The media, genre, season, episode, or progress row does not exist, or is not under the parent named in the URL |
+| `409` | A uniqueness rule was violated, such as linking the same genre twice |
+| `500` | An unexpected database error; the correlation id in the body identifies the log entry |
+
+Auto-complete is whole-show: marking the last unwatched episode of a show sets it to `COMPLETED`, and unmarking an episode of a `COMPLETED` show downgrades it to `WATCHING`. A show with no episodes is never auto-completed.
 
 ## Oracle specifics
 
@@ -296,4 +324,4 @@ Short version of what's next, roughly in order:
 
 - `docker-compose.yml` bringing up the API and Oracle together in one command
 - Season and episode `PUT` endpoints, to match what media items already have
-- Downgrading a show from `COMPLETED` back to `WATCHING` when an episode is unmarked
+- Pagination and filtering on `/media`
