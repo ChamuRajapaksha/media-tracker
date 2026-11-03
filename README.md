@@ -146,6 +146,8 @@ Schema source: [`database/schema.sql`](database/schema.sql).
 | `POST` | `/tmdb/import?tmdbId=&type=` | Import a movie or show from TMDB as a media row |
 | `POST` | `/tmdb/import-seasons?mediaId=` | Import a show's seasons and episodes from TMDB |
 | `GET` | `/tmdb/search?query=&type=` | Search TMDB for movies or shows |
+| `GET` | `/health` | Liveness check; always `200` while the API process is up |
+| `GET` | `/health/ready` | Readiness check; verifies the Oracle connection |
 
 `type` is `movie` or `tv` on the TMDB route and is translated to the database's `MOVIE`/`SHOW` before insert. Importing the same `(type, tmdbId)` twice is idempotent: the second call refreshes the existing row and returns `200 OK` instead of creating a duplicate.
 
@@ -193,6 +195,27 @@ The database was picked precisely because it is the awkward one, so the Oracle-f
 ## Getting started
 
 Prerequisites: .NET 10 SDK, Docker Desktop, a [TMDB](https://developer.themoviedb.org/docs) API key.
+
+### One command with Docker Compose
+
+Docker Compose starts Oracle and the API together, creates the schema on first boot, and passes secrets through environment variables, so user-secrets are not needed for this path.
+
+```bash
+cp .env.example .env
+# edit .env and set ORACLE_PASSWORD, APP_USER_PASSWORD, and TMDB_API_KEY
+docker compose up --build
+```
+
+- API: `http://localhost:5165`, Swagger UI: `http://localhost:5165/swagger`
+- Liveness: `http://localhost:5165/health`; readiness, which checks Oracle: `http://localhost:5165/health/ready`
+- Oracle is exposed on `localhost:1521` (service `FREEPDB1`, user `media_app`) if you want to attach a SQL client.
+- The first start takes a few minutes while Oracle initializes. The API waits for the database health check before it starts.
+- `database/schema.sql` is applied once, on a fresh volume. The schema is not idempotent. To start over, run `docker compose down -v` and bring the stack up again.
+- Compose maps `TMDB_API_KEY` to `Tmdb__ApiKey` and embeds `APP_USER_PASSWORD` in `ConnectionStrings__OracleDb`. The host-run path below still uses user-secrets.
+
+### Run the API on the host
+
+The steps below use a database container you manage yourself and .NET user-secrets.
 
 **1. Start Oracle**
 
@@ -322,6 +345,5 @@ media-tracker/
 
 Short version of what's next, roughly in order:
 
-- `docker-compose.yml` bringing up the API and Oracle together in one command
 - Season and episode `PUT` endpoints, to match what media items already have
 - Pagination and filtering on `/media`
